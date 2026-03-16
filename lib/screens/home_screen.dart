@@ -75,7 +75,7 @@ await loadProgress();
 
 void openLevelMap() async {
 
-Navigator.pushNamed(
+await Navigator.pushNamed(
   context,
   "/levels",
 );

@@ -1,227 +1,241 @@
 import 'package:flutter/material.dart';
+import '../services/progress_service.dart';
 
 class WinScreen extends StatefulWidget {
+  final int levelNumber;
+  final int stars;
+  final String time;
 
-final int levelNumber;
-final int stars;
-final String time;
+  const WinScreen({
+    super.key,
+    required this.levelNumber,
+    required this.stars,
+    required this.time,
+  });
 
-const WinScreen({
-super.key,
-required this.levelNumber,
-required this.stars,
-required this.time,
-});
-
-@override
-State<WinScreen> createState() => _WinScreenState();
+  @override
+  State<WinScreen> createState() => _WinScreenState();
 }
 
 class _WinScreenState extends State<WinScreen>
-with TickerProviderStateMixin {
+    with TickerProviderStateMixin {
 
-late AnimationController trophyController;
-late AnimationController starController;
+  final ProgressService progressService = ProgressService();
 
-late Animation<double> trophyScale;
+  late AnimationController trophyController;
+  late Animation<double> trophyScale;
 
-List<bool> visibleStars = [false, false, false];
+  List<bool> visibleStars = [false, false, false];
 
-@override
-void initState() {
-super.initState();
-trophyController = AnimationController(
-  vsync: this,
-  duration: const Duration(milliseconds: 700),
-);
+  @override
+  void initState() {
+    super.initState();
 
-starController = AnimationController(
-  vsync: this,
-  duration: const Duration(milliseconds: 800),
-);
+    trophyController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
 
-trophyScale = Tween<double>(
-  begin: 0,
-  end: 1,
-).animate(
-  CurvedAnimation(
-    parent: trophyController,
-    curve: Curves.elasticOut,
-  ),
-);
+    trophyScale = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(
+      CurvedAnimation(
+        parent: trophyController,
+        curve: Curves.elasticOut,
+      ),
+    );
 
-startAnimation();
-}
+    initialize();
+  }
 
-Future<void> startAnimation() async {
+  int convertTimeToSeconds(String time) {
+    final parts = time.split(":");
+    final minutes = int.parse(parts[0]);
+    final seconds = int.parse(parts[1]);
+    return minutes * 60 + seconds;
+  }
 
-trophyController.forward();
+  Future<void> initialize() async {
+    int timeInSeconds = convertTimeToSeconds(widget.time);
+    // Save completed level
+    await progressService.completeLevel(
+      widget.levelNumber,
+      widget.stars,
+      timeInSeconds,
+      );
 
-await Future.delayed(const Duration(milliseconds: 400));
+    // Start win animations
+    startAnimation();
+  }
 
-for (int i = 0; i < widget.stars; i++) {
+  Future<void> startAnimation() async {
 
-  await Future.delayed(const Duration(milliseconds: 350));
+    trophyController.forward();
 
-  setState(() {
-    visibleStars[i] = true;
-  });
-}
-}
+    await Future.delayed(const Duration(milliseconds: 400));
 
-@override
-void dispose() {
-trophyController.dispose();
-starController.dispose();
-super.dispose();
-}
+    for (int i = 0; i < widget.stars && i < visibleStars.length; i++) {
 
-Widget buildStar(int index) {
+      await Future.delayed(const Duration(milliseconds: 350));
 
-return AnimatedScale(
-  scale: visibleStars[index] ? 1 : 0,
-  duration: const Duration(milliseconds: 400),
-  curve: Curves.elasticOut,
-  child: const Icon(
-    Icons.star,
-    size: 50,
-    color: Colors.amber,
-  ),
-);
-}
+      if (!mounted) return;
 
-@override
-Widget build(BuildContext context) {
+      setState(() {
+        visibleStars[i] = true;
+      });
+    }
+  }
 
-return Scaffold(
+  @override
+  void dispose() {
+    trophyController.dispose();
+    super.dispose();
+  }
 
-  backgroundColor: Colors.green.shade50,
+  Widget buildStar(int index) {
+    return AnimatedScale(
+      scale: visibleStars[index] ? 1 : 0,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.elasticOut,
+      child: const Icon(
+        Icons.star,
+        size: 50,
+        color: Colors.amber,
+      ),
+    );
+  }
 
-  body: SafeArea(
-    child: Center(
-      child: Column(
+  @override
+  Widget build(BuildContext context) {
 
-        mainAxisAlignment: MainAxisAlignment.center,
+    return Scaffold(
+      backgroundColor: Colors.green.shade50,
+      body: SafeArea(
+        child: Center(
+          child: Column(
 
-        children: [
-
-          /// TROPHY
-          ScaleTransition(
-            scale: trophyScale,
-            child: const Icon(
-              Icons.emoji_events,
-              size: 120,
-              color: Colors.orange,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          const Text(
-            "Level Complete!",
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          Text(
-            "Level ${widget.levelNumber}",
-            style: const TextStyle(
-              fontSize: 18,
-              color: Colors.grey,
-            ),
-          ),
-
-          const SizedBox(height: 25),
-
-          /// STARS
-          Row(
             mainAxisAlignment: MainAxisAlignment.center,
+
             children: [
-              buildStar(0),
-              const SizedBox(width: 10),
-              buildStar(1),
-              const SizedBox(width: 10),
-              buildStar(2),
+
+              /// TROPHY
+              ScaleTransition(
+                scale: trophyScale,
+                child: const Icon(
+                  Icons.emoji_events,
+                  size: 120,
+                  color: Colors.orange,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                "Level Complete!",
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Text(
+                "Level ${widget.levelNumber}",
+                style: const TextStyle(
+                  fontSize: 18,
+                  color: Colors.grey,
+                ),
+              ),
+
+              const SizedBox(height: 25),
+
+              /// STARS
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  buildStar(0),
+                  const SizedBox(width: 10),
+                  buildStar(1),
+                  const SizedBox(width: 10),
+                  buildStar(2),
+                ],
+              ),
+
+              const SizedBox(height: 30),
+
+              /// TIME
+              Text(
+                "Time: ${widget.time}",
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+
+              const SizedBox(height: 40),
+
+              /// NEXT LEVEL
+              ElevatedButton(
+                onPressed: () {
+
+                  Navigator.pushReplacementNamed(
+                    context,
+                    "/game",
+                    arguments: widget.levelNumber + 1,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 50,
+                    vertical: 16,
+                  ),
+                ),
+                child: const Text(
+                  "Next Level",
+                  style: TextStyle(fontSize: 18),
+                ),
+              ),
+
+              const SizedBox(height: 15),
+
+              /// REPLAY
+              OutlinedButton(
+                onPressed: () {
+
+                  Navigator.pushReplacementNamed(
+                    context,
+                    "/game",
+                    arguments: widget.levelNumber,
+                  );
+                },
+                child: const Text(
+                  "Replay Level",
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+
+              const SizedBox(height: 15),
+
+              /// LEVEL MAP
+              TextButton(
+                onPressed: () {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    "/levels",
+                    (route) => route.isFirst,
+                  );
+                },
+                child: const Text(
+                  "Level Map",
+                  style: TextStyle(fontSize: 16),
+                ),
+              )
             ],
           ),
-
-          const SizedBox(height: 30),
-
-          /// TIME
-          Text(
-            "Time: ${widget.time}",
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-
-          const SizedBox(height: 40),
-
-          /// NEXT LEVEL
-          ElevatedButton(
-            onPressed: () {
-
-              Navigator.pushReplacementNamed(
-                context,
-                "/game",
-                arguments: widget.levelNumber + 1,
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 50,
-                vertical: 16,
-              ),
-            ),
-            child: const Text(
-              "Next Level",
-              style: TextStyle(fontSize: 18),
-            ),
-          ),
-
-          const SizedBox(height: 15),
-
-          /// REPLAY
-          OutlinedButton(
-            onPressed: () {
-
-              Navigator.pushReplacementNamed(
-                context,
-                "/game",
-                arguments: widget.levelNumber,
-              );
-            },
-            child: const Text(
-              "Replay Level",
-              style: TextStyle(fontSize: 16),
-            ),
-          ),
-
-          const SizedBox(height: 15),
-
-          /// LEVEL MAP
-          TextButton(
-            onPressed: () {
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                "/levels",
-                (route) => route.isFirst,
-              );
-            },
-            child: const Text(
-              "Level Map",
-              style: TextStyle(fontSize: 16),
-            ),
-          )
-        ],
+        ),
       ),
-    ),
-  ),
-);
-}
+    );
+  }
 }
