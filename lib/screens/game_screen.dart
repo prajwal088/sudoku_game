@@ -1,17 +1,27 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 
+import '../models/level.dart';
 import '../models/sudoku_board.dart';
+
+import '../services/level_service.dart';
+import '../services/progress_service.dart';
+
 import '../widgets/sudoku_grid.dart';
 import '../widgets/number_pad.dart';
-import '../services/game_service.dart';
+
 import '../logic/sudoku_validator.dart';
-import '../logic/sudoku_solver.dart';
+
+import 'win_screen.dart';
 
 class GameScreen extends StatefulWidget {
-final SudokuBoard board;
 
-const GameScreen({super.key, required this.board});
+final int levelNumber;
+
+const GameScreen({
+super.key,
+required this.levelNumber,
+});
 
 @override
 State<GameScreen> createState() => _GameScreenState();
@@ -19,9 +29,11 @@ State<GameScreen> createState() => _GameScreenState();
 
 class _GameScreenState extends State<GameScreen> {
 
-late SudokuBoard board;
+final LevelService levelService = LevelService();
+final ProgressService progressService = ProgressService();
 
-final GameService gameService = GameService();
+late SudokuBoard board;
+late Level level;
 
 int selectedRow = -1;
 int selectedCol = -1;
@@ -31,20 +43,39 @@ List<Map<String, int>> history = [];
 Timer? timer;
 int seconds = 0;
 
+bool isLoading = true;
+
 @override
 void initState() {
 super.initState();
-board = widget.board;
+loadLevel();
+}
+
+Future<void> loadLevel() async {
+level = await levelService.getLevel(widget.levelNumber);
+
+board = SudokuBoard.fromPuzzle(
+  level.puzzle,
+  level.solution,
+);
+
 startTimer();
+setState(() {
+  isLoading = false;
+});
 }
 
 void startTimer() {
 timer?.cancel();
-timer = Timer.periodic(const Duration(seconds: 1), (t) {
-setState(() {
-seconds++;
-});
-});
+
+timer = Timer.periodic(
+  const Duration(seconds: 1),
+  (t) {
+    setState(() {
+      seconds++;
+    });
+  },
+);
 }
 
 @override
@@ -54,9 +85,10 @@ super.dispose();
 }
 
 void selectCell(int row, int col) {
+
 setState(() {
-selectedRow = row;
-selectedCol = col;
+  selectedRow = row;
+  selectedCol = col;
 });
 }
 
@@ -73,12 +105,10 @@ if (!board.fixed[selectedRow][selectedCol]) {
   });
 
   setState(() {
-    board.board[selectedRow][selectedCol] = number;
+    board.setNumber(selectedRow, selectedCol, number);
   });
 
-  if (SudokuValidator.isBoardComplete(board.board)) {
-    showWinDialog();
-  }
+  checkWin();
 }
 }
 
@@ -95,10 +125,9 @@ if (!board.fixed[selectedRow][selectedCol]) {
   });
 
   setState(() {
-    board.board[selectedRow][selectedCol] = 0;
+    board.clearCell(selectedRow, selectedCol);
   });
 }
-
 }
 
 void undoMove() {
@@ -112,28 +141,10 @@ setState(() {
 });
 }
 
-void newGame() {
-
-timer?.cancel();
-
-setState(() {
-  board = gameService.newGame();
-  history.clear();
-  seconds = 0;
-  selectedRow = -1;
-  selectedCol = -1;
-});
-
-startTimer();
-
-}
-
-/// PRO Hint System (uses solver)
 void giveHint() {
 
-var solvedBoard = SudokuSolver.getSolvedBoard(board.board);
-
 for (int r = 0; r < 9; r++) {
+
   for (int c = 0; c < 9; c++) {
 
     if (board.board[r][c] == 0) {
@@ -145,38 +156,57 @@ for (int r = 0; r < 9; r++) {
       });
 
       setState(() {
-        board.board[r][c] = solvedBoard[r][c];
+        board.board[r][c] = board.solution[r][c];
         selectedRow = r;
         selectedCol = c;
       });
 
+      checkWin();
       return;
     }
   }
 }
 }
 
-void showWinDialog() {
+void checkWin() {
+
+if (!SudokuValidator.isBoardComplete(board.board)) return;
 
 timer?.cancel();
 
-showDialog(
-  context: context,
-  builder: (_) => AlertDialog(
-    title: const Text("🎉 Congratulations!"),
-    content: const Text("You solved the Sudoku puzzle!"),
-    actions: [
-      TextButton(
-        onPressed: () {
-          Navigator.pop(context);
-          newGame();
-        },
-        child: const Text("New Game"),
-      )
-    ],
-  ),
+int stars = calculateStars();
+
+progressService.saveLevelProgress(
+  levelNumber: widget.levelNumber,
+  stars: stars,
+  time: seconds,
 );
 
+// progressService.unlockNextLevel(widget.levelNumber);
+
+showWinScreen(stars);
+}
+
+int calculateStars() {
+int target = level.targetTime;
+
+if (seconds <= target) return 3;
+if (seconds <= target * 1.5) return 2;
+return 1;
+}
+
+void showWinScreen(int stars) {
+
+Navigator.pushReplacement(
+  context,
+  MaterialPageRoute(
+    builder: (_) => WinScreen(
+      levelNumber: widget.levelNumber,
+      stars: stars,
+      time: formatTime(),
+    ),
+  ),
+);
 }
 
 String formatTime() {
@@ -189,22 +219,23 @@ return "${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}
 
 @override
 Widget build(BuildContext context) {
+
+if (isLoading) {
+  return const Scaffold(
+    body: Center(child: CircularProgressIndicator()),
+  );
+}
+
 return Scaffold(
 
   appBar: AppBar(
-    title: const Text("Sudoku"),
-    actions: [
-      IconButton(
-        icon: const Icon(Icons.refresh),
-        onPressed: newGame,
-      )
-    ],
+    title: Text("Level ${widget.levelNumber}"),
   ),
 
   body: Column(
     children: [
 
-      const SizedBox(height: 10),
+      const SizedBox(height: 12),
 
       /// TIMER
       Text(
@@ -217,7 +248,7 @@ return Scaffold(
 
       const SizedBox(height: 10),
 
-      /// GRID
+      /// SUDOKU GRID
       Expanded(
         child: Padding(
           padding: const EdgeInsets.all(12),
