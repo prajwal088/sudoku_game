@@ -182,7 +182,7 @@ progressService.saveLevelProgress(
   time: seconds,
 );
 
-progressService.unlockNextLevel(widget.levelNumber);
+// progressService.unlockNextLevel(widget.levelNumber);
 
 showWinScreen(stars);
 }

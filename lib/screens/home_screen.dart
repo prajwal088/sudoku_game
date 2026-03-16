@@ -46,9 +46,13 @@ controller.repeat(reverse: true);
 
 Future<void> loadProgress() async {
 
-nextLevel = await progressService.getNextUnlockedLevel();
+  int level = await progressService.getNextUnlockedLevel();
 
-setState(() {});
+  if (!mounted) return;
+
+  setState(() {
+    nextLevel = level;
+  });
 }
 
 @override
@@ -57,21 +61,26 @@ controller.dispose();
 super.dispose();
 }
 
-void startNextLevel() {
+void startNextLevel() async {
 
-Navigator.pushNamed(
+await Navigator.pushNamed(
   context,
   "/game",
   arguments: nextLevel,
 );
+
+// Reload progress when coming back
+await loadProgress();
 }
 
-void openLevelMap() {
+void openLevelMap() async {
 
 Navigator.pushNamed(
   context,
   "/levels",
 );
+
+await loadProgress();
 }
 
 @override

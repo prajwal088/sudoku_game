@@ -207,10 +207,10 @@ return Scaffold(
           /// LEVEL MAP
           TextButton(
             onPressed: () {
-
-              Navigator.pushReplacementNamed(
+              Navigator.pushNamedAndRemoveUntil(
                 context,
                 "/levels",
+                (route) => route.isFirst,
               );
             },
             child: const Text(
@@ -218,7 +218,6 @@ return Scaffold(
               style: TextStyle(fontSize: 16),
             ),
           )
-
         ],
       ),
     ),
