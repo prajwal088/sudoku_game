@@ -5,6 +5,8 @@ import 'core/theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/game_screen.dart';
 import 'screens/level_map_screen.dart';
+import 'screens/settings_screen.dart';
+// import 'screens/stats_screen.dart'; // 👈 add when ready
 
 void main() {
   runApp(const SudokuApp());
@@ -20,15 +22,19 @@ class SudokuApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
 
-      /// FIRST SCREEN
-      home: const HomeScreen(),
+      /// ✅ PRO WAY (instead of home:)
+      initialRoute: "/",
 
-      /// APP ROUTES
+      /// STATIC ROUTES
       routes: {
+        "/": (context) => const HomeScreen(),
         "/levels": (context) => const LevelMapScreen(),
+        "/settings": (context) => const SettingsScreen(),
+
+        // "/stats": (context) => const StatsScreen(), // 👈 enable later
       },
 
-      /// ROUTE WITH ARGUMENTS
+      /// DYNAMIC ROUTES (WITH ARGUMENTS)
       onGenerateRoute: (settings) {
         if (settings.name == "/game") {
           final level = settings.arguments as int;
@@ -37,6 +43,7 @@ class SudokuApp extends StatelessWidget {
             builder: (context) => GameScreen(levelNumber: level),
           );
         }
+
         return null;
       },
     );
