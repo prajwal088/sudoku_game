@@ -230,29 +230,62 @@ class _GameScreenState extends State<GameScreen>
       board.board[last["row"]!][last["col"]!] = last["value"]!;
     });
   }
+  
+Set<String> hintedCells = {};
 
-  void giveHint() {
-    for (int r = 0; r < 9; r++) {
-      for (int c = 0; c < 9; c++) {
-        if (board.board[r][c] == 0) {
-          history.add({
-            "row": r,
-            "col": c,
-            "value": 0
-          });
+void giveHint() {
 
-          setState(() {
-            board.board[r][c] = board.solution[r][c];
-            selectedRow = r;
-            selectedCol = c;
-          });
+  List<Map<String, int>> candidates = [];
 
-          checkWin();
-          return;
-        }
+  for (int r = 0; r < 9; r++) {
+    for (int c = 0; c < 9; c++) {
+
+      if (board.fixed[r][c]) continue;
+
+      String key = "$r-$c";
+
+      int current = board.board[r][c];
+      int correct = board.solution[r][c];
+
+      // 🚫 Skip already hinted cells
+      if (hintedCells.contains(key)) continue;
+
+      // Only empty or incorrect cells
+      if (current == 0 || current != correct) {
+        candidates.add({"row": r, "col": c});
       }
     }
   }
+
+  if (candidates.isEmpty) return;
+
+  candidates.shuffle();
+  var pick = candidates.first;
+
+  int r = pick["row"]!;
+  int c = pick["col"]!;
+  String key = "$r-$c";
+
+  int currentValue = board.board[r][c];
+  int correctValue = board.solution[r][c];
+
+  history.add({
+    "row": r,
+    "col": c,
+    "value": currentValue,
+  });
+
+  setState(() {
+    board.board[r][c] = correctValue;
+    selectedRow = r;
+    selectedCol = c;
+
+    // ✅ Mark as hinted
+    hintedCells.add(key);
+  });
+
+  checkWin();
+}
 
   void checkWin() {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
