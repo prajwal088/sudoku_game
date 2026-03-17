@@ -15,269 +15,350 @@ import '../logic/sudoku_validator.dart';
 import 'win_screen.dart';
 
 class GameScreen extends StatefulWidget {
+  final int levelNumber;
 
-final int levelNumber;
+  const GameScreen({
+    super.key,
+    required this.levelNumber,
+  });
 
-const GameScreen({
-super.key,
-required this.levelNumber,
-});
-
-@override
-State<GameScreen> createState() => _GameScreenState();
+  @override
+  State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> {
+class _GameScreenState extends State<GameScreen>
+    with WidgetsBindingObserver {
 
-final LevelService levelService = LevelService();
-final ProgressService progressService = ProgressService();
+  final LevelService levelService = LevelService();
+  final ProgressService progressService = ProgressService();
 
-late SudokuBoard board;
-late Level level;
+  late SudokuBoard board;
+  late Level level;
 
-int selectedRow = -1;
-int selectedCol = -1;
+  int selectedRow = -1;
+  int selectedCol = -1;
 
-List<Map<String, int>> history = [];
+  List<Map<String, int>> history = [];
 
-Timer? timer;
-int seconds = 0;
+  Timer? timer;
 
-bool isLoading = true;
+  DateTime? startTime;
+  Duration elapsed = Duration.zero;
+  bool isRunning = false;
 
-@override
-void initState() {
-super.initState();
-loadLevel();
-}
+  DateTime? pausedAt;
+  static const int maxBackgroundMinutes = 15;
 
-Future<void> loadLevel() async {
-level = await levelService.getLevel(widget.levelNumber);
+  bool isLoading = true;
 
-board = SudokuBoard.fromPuzzle(
-  level.puzzle,
-  level.solution,
-);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    loadLevel();
+  }
 
-startTimer();
-setState(() {
-  isLoading = false;
-});
-}
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    timer?.cancel();
+    super.dispose();
+  }
 
-void startTimer() {
-timer?.cancel();
+  Future<void> loadLevel() async {
+    level = await levelService.getLevel(widget.levelNumber);
 
-timer = Timer.periodic(
-  const Duration(seconds: 1),
-  (t) {
+    board = SudokuBoard.fromPuzzle(
+      level.puzzle,
+      level.solution,
+    );
+
+    startTimer();
+
     setState(() {
-      seconds++;
+      isLoading = false;
     });
-  },
-);
-}
+  }
 
-@override
-void dispose() {
-timer?.cancel();
-super.dispose();
-}
+  // ================= TIMER =================
 
-void selectCell(int row, int col) {
+  void startTimer() {
+    startTime = DateTime.now();
+    elapsed = Duration.zero;
+    isRunning = true;
 
-setState(() {
-  selectedRow = row;
-  selectedCol = col;
-});
-}
+    timer?.cancel();
 
-void inputNumber(int number) {
+    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
 
-if (selectedRow == -1 || selectedCol == -1) return;
+  void pauseTimer() {
+    if (!isRunning) return;
 
-if (!board.fixed[selectedRow][selectedCol]) {
+    elapsed += DateTime.now().difference(startTime!);
+    isRunning = false;
+  }
 
-  history.add({
-    "row": selectedRow,
-    "col": selectedCol,
-    "value": board.board[selectedRow][selectedCol]
-  });
+  void resumeTimer() {
+    if (isRunning) return;
 
-  setState(() {
-    board.setNumber(selectedRow, selectedCol, number);
-  });
+    startTime = DateTime.now();
+    isRunning = true;
+  }
 
-  checkWin();
-}
-}
+  Duration getCurrentTime() {
+    if (!isRunning) return elapsed;
 
-void eraseNumber() {
+    return elapsed + DateTime.now().difference(startTime!);
+  }
 
-if (selectedRow == -1 || selectedCol == -1) return;
+  // ================= LIFECYCLE =================
 
-if (!board.fixed[selectedRow][selectedCol]) {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      pauseTimer();
+      pausedAt = DateTime.now();
+    } 
+    else if (state == AppLifecycleState.resumed) {
+      if (pausedAt != null) {
+        final difference = DateTime.now().difference(pausedAt!);
 
-  history.add({
-    "row": selectedRow,
-    "col": selectedCol,
-    "value": board.board[selectedRow][selectedCol]
-  });
+        if (difference.inMinutes >= maxBackgroundMinutes) {
+          handleSessionExpired();
+          return;
+        }
+      }
 
-  setState(() {
-    board.clearCell(selectedRow, selectedCol);
-  });
-}
-}
+      resumeTimer();
+    }
+  }
 
-void undoMove() {
+  void handleSessionExpired() {
+    if (!mounted) return;
 
-if (history.isEmpty) return;
+    timer?.cancel();
 
-var last = history.removeLast();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text("Session Expired"),
+        content: const Text(
+          "You were away for too long.\n\nThe level will restart.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              restartLevel();
+            },
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
 
-setState(() {
-  board.board[last["row"]!][last["col"]!] = last["value"]!;
-});
-}
+  void restartLevel() {
+    setState(() {
+      history.clear();
+      selectedRow = -1;
+      selectedCol = -1;
+    });
 
-void giveHint() {
+    board = SudokuBoard.fromPuzzle(
+      level.puzzle,
+      level.solution,
+    );
 
-for (int r = 0; r < 9; r++) {
+    startTimer();
+  }
 
-  for (int c = 0; c < 9; c++) {
+  // ================= GAME LOGIC =================
 
-    if (board.board[r][c] == 0) {
+  void selectCell(int row, int col) {
+    setState(() {
+      selectedRow = row;
+      selectedCol = col;
+    });
+  }
 
+  void inputNumber(int number) {
+    if (selectedRow == -1 || selectedCol == -1) return;
+
+    if (!board.fixed[selectedRow][selectedCol]) {
       history.add({
-        "row": r,
-        "col": c,
-        "value": 0
+        "row": selectedRow,
+        "col": selectedCol,
+        "value": board.board[selectedRow][selectedCol]
       });
 
       setState(() {
-        board.board[r][c] = board.solution[r][c];
-        selectedRow = r;
-        selectedCol = c;
+        board.setNumber(selectedRow, selectedCol, number);
       });
 
       checkWin();
-      return;
     }
   }
-}
-}
 
-void checkWin() {
+  void eraseNumber() {
+    if (selectedRow == -1 || selectedCol == -1) return;
 
-if (!SudokuValidator.isBoardComplete(board.board)) return;
+    if (!board.fixed[selectedRow][selectedCol]) {
+      history.add({
+        "row": selectedRow,
+        "col": selectedCol,
+        "value": board.board[selectedRow][selectedCol]
+      });
 
-timer?.cancel();
+      setState(() {
+        board.clearCell(selectedRow, selectedCol);
+      });
+    }
+  }
 
-int stars = calculateStars();
+  void undoMove() {
+    if (history.isEmpty) return;
 
-progressService.saveLevelProgress(
-  levelNumber: widget.levelNumber,
-  stars: stars,
-  time: seconds,
-);
+    var last = history.removeLast();
 
-// progressService.unlockNextLevel(widget.levelNumber);
+    setState(() {
+      board.board[last["row"]!][last["col"]!] = last["value"]!;
+    });
+  }
 
-showWinScreen(stars);
-}
+  void giveHint() {
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (board.board[r][c] == 0) {
+          history.add({
+            "row": r,
+            "col": c,
+            "value": 0
+          });
 
-int calculateStars() {
-int target = level.targetTime;
+          setState(() {
+            board.board[r][c] = board.solution[r][c];
+            selectedRow = r;
+            selectedCol = c;
+          });
 
-if (seconds <= target) return 3;
-if (seconds <= target * 1.5) return 2;
-return 1;
-}
+          checkWin();
+          return;
+        }
+      }
+    }
+  }
 
-void showWinScreen(int stars) {
+  void checkWin() {
+    if (!SudokuValidator.isBoardComplete(board.board)) return;
 
-Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(
-    builder: (_) => WinScreen(
+    timer?.cancel();
+
+    int stars = calculateStars();
+
+    progressService.saveLevelProgress(
       levelNumber: widget.levelNumber,
       stars: stars,
-      time: formatTime(),
-    ),
-  ),
-);
-}
+      time: getCurrentTime().inSeconds,
+    );
 
-String formatTime() {
+    showWinScreen(stars);
+  }
 
-int minutes = seconds ~/ 60;
-int secs = seconds % 60;
+  int calculateStars() {
+    int target = level.targetTime;
+    int currentSeconds = getCurrentTime().inSeconds;
 
-return "${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}";
-}
+    if (currentSeconds <= target) return 3;
+    if (currentSeconds <= target * 1.5) return 2;
+    return 1;
+  }
 
-@override
-Widget build(BuildContext context) {
-
-if (isLoading) {
-  return const Scaffold(
-    body: Center(child: CircularProgressIndicator()),
-  );
-}
-
-return Scaffold(
-
-  appBar: AppBar(
-    title: Text("Level ${widget.levelNumber}"),
-  ),
-
-  body: Column(
-    children: [
-
-      const SizedBox(height: 12),
-
-      /// TIMER
-      Text(
-        formatTime(),
-        style: const TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
+  void showWinScreen(int stars) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WinScreen(
+          levelNumber: widget.levelNumber,
+          stars: stars,
+          time: formatTime(),
         ),
       ),
+    );
+  }
 
-      const SizedBox(height: 10),
+  String formatTime() {
+    final duration = getCurrentTime();
 
-      /// SUDOKU GRID
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: SudokuGrid(
-            board: board,
-            selectedRow: selectedRow,
-            selectedCol: selectedCol,
-            onCellTap: selectCell,
+    int minutes = duration.inMinutes;
+    int secs = duration.inSeconds % 60;
+
+    return "${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}";
+  }
+
+  // ================= UI =================
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Level ${widget.levelNumber}"),
+      ),
+      body: Column(
+        children: [
+          const SizedBox(height: 12),
+
+          /// TIMER
+          Text(
+            formatTime(),
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
+
+          const SizedBox(height: 10),
+
+          /// SUDOKU GRID
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: SudokuGrid(
+                board: board,
+                selectedRow: selectedRow,
+                selectedCol: selectedCol,
+                onCellTap: selectCell,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          /// NUMBER PAD
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: NumberPad(
+              onNumberSelected: inputNumber,
+              onUndo: undoMove,
+              onHint: giveHint,
+              onErase: eraseNumber,
+            ),
+          ),
+
+          const SizedBox(height: 20),
+        ],
       ),
-
-      const SizedBox(height: 10),
-
-      /// NUMBER PAD
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: NumberPad(
-          onNumberSelected: inputNumber,
-          onUndo: undoMove,
-          onHint: giveHint,
-          onErase: eraseNumber,
-        ),
-      ),
-
-      const SizedBox(height: 20),
-
-    ],
-  ),
-);
-}
+    );
+  }
 }
