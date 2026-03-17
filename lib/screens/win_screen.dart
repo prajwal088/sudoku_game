@@ -49,14 +49,14 @@ class _WinScreenState extends State<WinScreen>
     initialize();
   }
 
-  int convertTimeToSeconds(String time) {
+  /* int convertTimeToSeconds(String time) {
     final parts = time.split(":");
     final minutes = int.parse(parts[0]);
     final seconds = int.parse(parts[1]);
     return minutes * 60 + seconds;
   }
 
-  Future<void> initialize() async {
+    Future<void> initialize() async {
     int timeInSeconds = convertTimeToSeconds(widget.time);
     // Save completed level
     await progressService.completeLevel(
@@ -67,7 +67,11 @@ class _WinScreenState extends State<WinScreen>
 
     // Start win animations
     startAnimation();
-  }
+  } */
+
+ void initialize(){
+  startAnimation();
+ }
 
   Future<void> startAnimation() async {
 

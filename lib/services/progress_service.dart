@@ -9,9 +9,9 @@ class ProgressService {
   Map<String, dynamic> _defaultProgress() {
     return {
       "currentLevel": 1,
-      "completedLevels": [],
-      "bestTimes": {},
-      "stars": {}
+      "completedLevels": <int>[],
+      "bestTimes": <String, int>{},
+      "stars": <String, int>{}
     };
   }
 
@@ -39,7 +39,7 @@ class ProgressService {
     );
   }
 
-  /// Save level completion
+  /// Save level progress (called from GameScreen)
   Future<void> saveLevelProgress({
     required int levelNumber,
     required int stars,
@@ -52,34 +52,38 @@ class ProgressService {
   /// Complete level
   Future<void> completeLevel(
     int level,
-    int completionTime,
-    int starsEarned,
+    int timeInSeconds,
+    int stars,
   ) async {
 
     var progress = await loadProgress();
 
-    List completed = progress["completedLevels"];
+    List<int> completed =
+        List<int>.from(progress["completedLevels"]);
 
+    Map<String, dynamic> bestTimes =
+        Map<String, dynamic>.from(progress["bestTimes"]);
+
+    Map<String, dynamic> starsMap =
+        Map<String, dynamic>.from(progress["stars"]);
+
+    /// Add completed level
     if (!completed.contains(level)) {
       completed.add(level);
     }
 
-    /// Best time
-    Map bestTimes = progress["bestTimes"];
-
+    /// Best time (lower is better)
     if (!bestTimes.containsKey(level.toString()) ||
-        completionTime < bestTimes[level.toString()]) {
+        timeInSeconds < bestTimes[level.toString()]) {
 
-      bestTimes[level.toString()] = completionTime;
+      bestTimes[level.toString()] = timeInSeconds;
     }
 
-    /// Stars
-    Map stars = progress["stars"];
+    /// Stars (higher is better)
+    if (!starsMap.containsKey(level.toString()) ||
+        stars > starsMap[level.toString()]) {
 
-    if (!stars.containsKey(level.toString()) ||
-        starsEarned > stars[level.toString()]) {
-
-      stars[level.toString()] = starsEarned;
+      starsMap[level.toString()] = stars;
     }
 
     /// Unlock next level
@@ -87,10 +91,15 @@ class ProgressService {
       progress["currentLevel"] = level + 1;
     }
 
+    /// Save updated values back
+    progress["completedLevels"] = completed;
+    progress["bestTimes"] = bestTimes;
+    progress["stars"] = starsMap;
+
     await saveProgress(progress);
   }
 
-  /// Unlock next level manually (used by GameScreen)
+  /// Unlock next level manually (optional)
   Future<void> unlockNextLevel(int level) async {
 
     var progress = await loadProgress();
@@ -102,7 +111,7 @@ class ProgressService {
     await saveProgress(progress);
   }
 
-  /// Next playable level (for Continue button)
+  /// Next playable level
   Future<int> getNextUnlockedLevel() async {
 
     var progress = await loadProgress();
@@ -127,16 +136,18 @@ class ProgressService {
   Future<int> getStars(int level) async {
 
     var progress = await loadProgress();
-    Map stars = progress["stars"];
+    Map<String, dynamic> starsMap =
+        Map<String, dynamic>.from(progress["stars"]);
 
-    return stars[level.toString()] ?? 0;
+    return starsMap[level.toString()] ?? 0;
   }
 
-  /// Get best time
+  /// Get best time (in seconds)
   Future<int?> getBestTime(int level) async {
 
     var progress = await loadProgress();
-    Map bestTimes = progress["bestTimes"];
+    Map<String, dynamic> bestTimes =
+        Map<String, dynamic>.from(progress["bestTimes"]);
 
     return bestTimes[level.toString()];
   }
