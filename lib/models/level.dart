@@ -1,61 +1,66 @@
-  class Level {
-final int levelNumber;
-final String difficulty;
+class Level {
+  final int levelNumber;
+  final String difficulty;
 
-final int targetTime;
+  final int targetTime;
 
-bool isLocked;
-bool isCompleted;
+  final int world;
 
-int stars;        // 0 - 3 stars
-int bestTime;     // seconds
+  bool isLocked;
+  bool isCompleted;
 
-List<List<int>> puzzle;
-List<List<int>> solution;
+  int stars;        // 0 - 3 stars
+  int bestTime;     // seconds
 
-Level({
-required this.levelNumber,
-required this.difficulty,
-required this.puzzle,
-required this.solution,
-this.isLocked = true,
-this.isCompleted = false,
-this.stars = 0,
-this.bestTime = 0,
-required this.targetTime,
-});
+  List<List<int>> puzzle;
+  List<List<int>> solution;
 
-/// Convert Level → Map (for storage)
-Map<String, dynamic> toMap() {
-return {
-'levelNumber': levelNumber,
-'difficulty': difficulty,
-'targetTime': targetTime,
-'isLocked': isLocked,
-'isCompleted': isCompleted,
-'stars': stars,
-'bestTime': bestTime,
-'puzzle': puzzle,
-'solution': solution,
-};
-}
+  Level({
+    required this.levelNumber,
+    required this.world,
+    required this.difficulty,
+    required this.puzzle,
+    required this.solution,
+    this.isLocked = true,
+    this.isCompleted = false,
+    this.stars = 0,
+    this.bestTime = 0,
+    required this.targetTime,
+  });
 
-/// Convert Map → Level
-factory Level.fromMap(Map<String, dynamic> map) {
-return Level(
-levelNumber: map['levelNumber'],
-difficulty: map['difficulty'],
-targetTime: map['targetTime'],
-isLocked: map['isLocked'],
-isCompleted: map['isCompleted'],
-stars: map['stars'],
-bestTime: map['bestTime'],
-puzzle: List<List<int>>.from(
-map['puzzle'].map((row) => List<int>.from(row)),
-),
-solution: List<List<int>>.from(
-map['solution'].map((row) => List<int>.from(row)),
-),
-);
-}
+  /// Convert Level → Map (for storage)
+  Map<String, dynamic> toMap() {
+    return {
+      'levelNumber': levelNumber,
+      'world': world, // ✅ FIXED
+      'difficulty': difficulty,
+      'targetTime': targetTime,
+      'isLocked': isLocked,
+      'isCompleted': isCompleted,
+      'stars': stars,
+      'bestTime': bestTime,
+      'puzzle': puzzle,
+      'solution': solution,
+    };
+  }
+
+  /// Convert Map → Level
+  factory Level.fromMap(Map<String, dynamic> map) {
+    return Level(
+      levelNumber: map['levelNumber'],
+      world: map['world'] ?? 1, // ✅ FIXED (fallback for old data)
+      difficulty: map['difficulty'],
+      targetTime: map['targetTime'],
+      isLocked: map['isLocked'],
+      isCompleted: map['isCompleted'],
+      stars: map['stars'],
+      bestTime: map['bestTime'],
+      puzzle: List<List<int>>.from(
+        map['puzzle'].map((row) => List<int>.from(row)),
+      ),
+      solution: List<List<int>>.from(
+        map['solution'].map((row) => List<int>.from(row)),
+      ),
+    );
+  }
 }

@@ -4,123 +4,138 @@ import 'progress_service.dart';
 import 'puzzle_repository.dart';
 
 class LevelService {
+  final ProgressService _progressService = ProgressService();
+  final PuzzleRepository _puzzleRepository = PuzzleRepository();
 
-final ProgressService _progressService = ProgressService();
-final PuzzleRepository _puzzleRepository = PuzzleRepository();
+  /// Load a level with puzzle + progress state
+  Future<Level> getLevel(int levelNumber) async {
+    final progress = await _progressService.loadProgress();
 
-/// Load a level with puzzle + progress state
-Future<Level> getLevel(int levelNumber) async {
+    int currentLevel = progress["currentLevel"];
 
-final progress = await _progressService.loadProgress();
+    bool isLocked = levelNumber > currentLevel;
 
-int currentLevel = progress["currentLevel"];
+    List completedLevels = progress["completedLevels"];
 
-bool isLocked = levelNumber > currentLevel;
+    bool isCompleted = completedLevels.contains(levelNumber);
 
-List completedLevels = progress["completedLevels"];
+    int stars = progress["stars"][levelNumber.toString()] ?? 0;
 
-bool isCompleted = completedLevels.contains(levelNumber);
+    int bestTime = progress["bestTimes"][levelNumber.toString()] ?? 0;
 
-int stars = progress["stars"][levelNumber.toString()] ?? 0;
+    /// Load puzzle for this level
+    final puzzleData = _puzzleRepository.getPuzzleForLevel(levelNumber);
 
-int bestTime = progress["bestTimes"][levelNumber.toString()] ?? 0;
-
-/// Load puzzle for this level
-final puzzleData = _puzzleRepository.getPuzzleForLevel(levelNumber);
-
-return Level(
-  levelNumber: levelNumber,
-  difficulty: _getDifficulty(levelNumber),
-  puzzle: puzzleData["puzzle"] as List<List<int>>,
-  solution: puzzleData["solution"] as List<List<int>>,
-  isLocked: isLocked,
-  isCompleted: isCompleted,
-  stars: stars,
-  bestTime: bestTime,
-  targetTime: _getTargetTime(levelNumber),
-);
-}
-
-/// Get multiple levels for level map
-Future<List<Level>> getVisibleLevels() async {
-List<int> visibleLevels = await _progressService.getVisibleLevels();
-
-List<Level> levels = [];
-
-for (int levelNumber in visibleLevels) {
-
-  Level level = await getLevel(levelNumber);
-
-  levels.add(level);
-}
-
-return levels;
-}
-
-/// Difficulty progression logic
-String _getDifficulty(int level) {
-if (level <= 20) {
-  return "Easy";
-}
-
-if (level <= 60) {
-  return "Medium";
-}
-
-if (level <= 120) {
-  return "Hard";
-}
-
-return "Expert";
-
-}
-
-int _getTargetTime(int level) {
-
-  if (level <= 20) {
-    return 300; // 5 minutes
+    return Level(
+      levelNumber: levelNumber,
+      world: _getWorld(levelNumber), // ✅ FIXED
+      difficulty: _getDifficulty(levelNumber),
+      puzzle: puzzleData["puzzle"] as List<List<int>>,
+      solution: puzzleData["solution"] as List<List<int>>,
+      isLocked: isLocked,
+      isCompleted: isCompleted,
+      stars: stars,
+      bestTime: bestTime,
+      targetTime: _getTargetTime(levelNumber),
+    );
   }
 
-  if (level <= 60) {
-    return 600; // 10 minutes
+  /// ✅ OPTIMIZED: Load only levels for specific world
+  Future<List<Level>> getLevelsByWorld(int world) async {
+    List<int> visibleLevels = await _progressService.getVisibleLevels();
+
+    List<Level> levels = [];
+
+    for (int levelNumber in visibleLevels) {
+      if (_getWorld(levelNumber) == world) {
+        Level level = await getLevel(levelNumber);
+        levels.add(level);
+      }
+    }
+
+    return levels;
   }
 
-  if (level <= 120) {
-    return 900; // 15 minutes
+  /// Get multiple levels for level map
+  Future<List<Level>> getVisibleLevels() async {
+    List<int> visibleLevels = await _progressService.getVisibleLevels();
+
+    List<Level> levels = [];
+
+    for (int levelNumber in visibleLevels) {
+      Level level = await getLevel(levelNumber);
+      levels.add(level);
+    }
+
+    return levels;
   }
 
-  return 1200; // 20 minutes
-}
+  /// ✅ NEW: World calculation (25 levels per world)
+  int _getWorld(int level) {
+    return ((level - 1) ~/ 25) + 1;
+  }
 
-/// Convert Level puzzle to SudokuBoard
-SudokuBoard createBoardFromLevel(Level level) {
-return SudokuBoard.fromPuzzle(
-  level.puzzle,
-  level.solution,
-);
-}
+  /// Difficulty progression logic
+  String _getDifficulty(int level) {
+    if (level <= 20) {
+      return "Easy";
+    }
 
-/// Mark level completed and unlock next
-Future<void> completeLevel(
-int levelNumber,
-int completionTime,
-int stars,
-) async {
-await _progressService.completeLevel(
-  levelNumber,
-  completionTime,
-  stars,
-);
-}
+    if (level <= 60) {
+      return "Medium";
+    }
 
-/// Check if level unlocked
-Future<bool> isLevelUnlocked(int levelNumber) async {
-return await _progressService.isLevelUnlocked(levelNumber);
-}
+    if (level <= 120) {
+      return "Hard";
+    }
 
-/// Reset all progress (debug / testing)
-Future<void> resetProgress() async {
+    return "Expert";
+  }
 
-await _progressService.resetProgress();
-}
+  int _getTargetTime(int level) {
+    if (level <= 20) {
+      return 300; // 5 minutes
+    }
+
+    if (level <= 60) {
+      return 600; // 10 minutes
+    }
+
+    if (level <= 120) {
+      return 900; // 15 minutes
+    }
+
+    return 1200; // 20 minutes
+  }
+
+  /// Convert Level puzzle to SudokuBoard
+  SudokuBoard createBoardFromLevel(Level level) {
+    return SudokuBoard.fromPuzzle(
+      level.puzzle,
+      level.solution,
+    );
+  }
+
+  /// Mark level completed and unlock next
+  Future<void> completeLevel(
+    int levelNumber,
+    int completionTime,
+    int stars,
+  ) async {
+    await _progressService.completeLevel(
+      levelNumber,
+      completionTime,
+      stars,
+    );
+  }
+
+  /// Check if level unlocked
+  Future<bool> isLevelUnlocked(int levelNumber) async {
+    return await _progressService.isLevelUnlocked(levelNumber);
+  }
+
+  /// Reset all progress (debug / testing)
+  Future<void> resetProgress() async {
+    await _progressService.resetProgress();
+  }
 }

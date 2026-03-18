@@ -5,15 +5,16 @@ import 'core/theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/game_screen.dart';
 import 'screens/level_map_screen.dart';
+import 'screens/world_map_screen.dart';
 import 'screens/settings_screen.dart';
-// import 'screens/stats_screen.dart'; // 👈 add when ready
+// import 'screens/stats_screen.dart';
 
 import 'services/user_service.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // ✅ Required for async before runApp
+  WidgetsFlutterBinding.ensureInitialized();
 
-  await UserService().init(); // ✅ Initialize once (Singleton)
+  await UserService().init();
 
   runApp(const SudokuApp());
 }
@@ -28,25 +29,34 @@ class SudokuApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
 
-      /// ✅ PRO WAY (instead of home:)
       initialRoute: "/",
 
-      /// STATIC ROUTES
       routes: {
         "/": (context) => const HomeScreen(),
-        "/levels": (context) => const LevelMapScreen(),
+
+        "/worlds": (context) => const WorldMapScreen(),
+
         "/settings": (context) => const SettingsScreen(),
 
-        // "/stats": (context) => const StatsScreen(), // 👈 enable later
+        // "/stats": (context) => const StatsScreen(),
       },
 
-      /// DYNAMIC ROUTES (WITH ARGUMENTS)
       onGenerateRoute: (settings) {
+        /// ✅ GAME SCREEN
         if (settings.name == "/game") {
           final level = settings.arguments as int;
 
           return MaterialPageRoute(
             builder: (context) => GameScreen(levelNumber: level),
+          );
+        }
+
+        /// ✅ LEVEL MAP WITH WORLD ARGUMENT
+        if (settings.name == "/levels") {
+          final world = settings.arguments as int;
+
+          return MaterialPageRoute(
+            builder: (context) => LevelMapScreen(world: world),
           );
         }
 
