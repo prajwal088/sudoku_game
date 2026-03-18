@@ -43,8 +43,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// LOAD USER
   Future<void> loadUser() async {
-    final name = await userService.getUserName();
-    final id = await userService.getUserId();
+    final name =  userService.getUserName();
+    final id = userService.getUserId();
 
     if (!mounted) return;
 
@@ -182,84 +182,139 @@ Future<void> openLink(String url) async {
         title: const Text("Settings"),
       ),
 
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+        body: Column(
+          children: [
 
-          /// 👤 PROFILE
-          SettingsTile(
-            icon: Icons.person,
-            title: userName.isEmpty ? "Set your name" : userName,
-            subtitle: "Tap to edit",
-            trailing: const Icon(Icons.edit),
-            onTap: promptName,
-          ),
+            /// 🔼 SCROLLABLE CONTENT
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
 
-          /// 🆔 USER ID
-          SettingsTile(
-            icon: Icons.fingerprint,
-            title: "User ID",
-            subtitle: userId,
-            trailing: IconButton(
-              icon: const Icon(Icons.copy),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: userId));
-                  if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("User ID copied"),
-                    behavior: SnackBarBehavior.floating,
+                  /// 👤 PROFILE
+                  SettingsTile(
+                    icon: Icons.person,
+                    title: userName.isEmpty ? "Set your name" : userName,
+                    subtitle: "Tap to edit",
+                    trailing: const Icon(Icons.edit),
+                    onTap: promptName,
                   ),
-                );
-              },
+
+                  /// 🆔 USER ID
+                  SettingsTile(
+                    icon: Icons.fingerprint,
+                    title: "User ID",
+                    subtitle: userId,
+                    trailing: IconButton(
+                      icon: const Icon(Icons.copy),
+                      onPressed: () {
+                        final messenger = ScaffoldMessenger.of(context);
+
+                        Clipboard.setData(ClipboardData(text: userId));
+
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text("User ID copied"),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  /// 🧹 RESET
+                  SettingsTile(
+                    icon: Icons.delete,
+                    title: "Reset Data",
+                    isDanger: true,
+                    onTap: showResetDialog,
+                  ),
+
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
-          ),
 
-          /// 🔐 PRIVACY
-          SettingsTile(
-            icon: Icons.privacy_tip,
-            title: "Privacy Policy",
-            onTap: () => openLink("https://your-privacy-url.com"),
-          ),
+            /// 🔽 FIXED FOOTER (SAFE)
+            SafeArea(
+              top: false,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  border: const Border(
+                    top: BorderSide(color: Colors.grey, width: 0.2),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
 
-          /// 📄 TERMS
-          SettingsTile(
-            icon: Icons.description,
-            title: "Terms & Conditions",
-            onTap: () => openLink("https://your-terms-url.com"),
-          ),
+                    /// 🌐 SOCIAL ICONS
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.public),
+                          onPressed: () => openLink("https://your-social-link.com"),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: const Icon(Icons.share),
+                          onPressed: () {
+                            // TODO: Share feature
+                          },
+                        ),
+                      ],
+                    ),
 
-          /// ℹ️ APP VERSION
-          SettingsTile(
-            icon: Icons.info,
-            title: "App Version",
-            subtitle: appVersion.isEmpty ? "Loading..." : appVersion,
-          ),
+                    /// ℹ️ VERSION
+                    Text(
+                      appVersion.isEmpty ? "Loading..." : "Version $appVersion",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
 
-          /// 🌐 SOCIAL (OPTIONAL)
-          SettingsTile(
-            icon: Icons.public,
-            title: "Follow Us",
-            onTap: () => openLink("https://your-social-link.com"),
-          ),
+                    const SizedBox(height: 6),
 
-          SettingsTile(
-            icon: Icons.share,
-            title: "Share App",
-            onTap: () {
-              // TODO: Implement share feature
-            },
-          ),
+                    /// 📄 LINKS
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        InkWell(
+                          onTap: () => openLink("https://your-privacy-url.com"),
+                          child: const Text(
+                            "Privacy Policy",
+                            style: TextStyle(
+                              fontSize: 13,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                        const Text("  •  "),
+                        InkWell(
+                          onTap: () => openLink("https://your-terms-url.com"),
+                          child: const Text(
+                            "Terms & Conditions",
+                            style: TextStyle(
+                              fontSize: 13,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
 
-          /// 🧹 RESET
-          SettingsTile(
-            icon: Icons.delete,
-            title: "Reset Data",
-            isDanger: true,
-            onTap: showResetDialog,
-          ),
-        ],
-      ),
-    );
+                    const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+       );
   }
 }

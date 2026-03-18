@@ -8,7 +8,13 @@ import 'screens/level_map_screen.dart';
 import 'screens/settings_screen.dart';
 // import 'screens/stats_screen.dart'; // 👈 add when ready
 
-void main() {
+import 'services/user_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized(); // ✅ Required for async before runApp
+
+  await UserService().init(); // ✅ Initialize once (Singleton)
+
   runApp(const SudokuApp());
 }
 
