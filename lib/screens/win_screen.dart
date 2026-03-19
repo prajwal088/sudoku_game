@@ -5,12 +5,14 @@ class WinScreen extends StatefulWidget {
   final int levelNumber;
   final int stars;
   final String time;
+  final int world;
 
   const WinScreen({
     super.key,
     required this.levelNumber,
     required this.stars,
     required this.time,
+    required this.world,
   });
 
   @override
@@ -49,30 +51,36 @@ class _WinScreenState extends State<WinScreen>
     initialize();
   }
 
-  /* int convertTimeToSeconds(String time) {
+  // ================= TIME CONVERSION =================
+  int convertTimeToSeconds(String time) {
     final parts = time.split(":");
     final minutes = int.parse(parts[0]);
     final seconds = int.parse(parts[1]);
     return minutes * 60 + seconds;
   }
 
-    Future<void> initialize() async {
+  // ================= INIT =================
+  Future<void> initialize() async {
     int timeInSeconds = convertTimeToSeconds(widget.time);
-    // Save completed level
+
+    // ✅ SAVE PROGRESS
     await progressService.completeLevel(
       widget.levelNumber,
-      widget.stars,
       timeInSeconds,
-      );
+      widget.stars,
+    );
 
-    // Start win animations
+    // ✅ CHECK WORLD COMPLETION
+    if (widget.levelNumber % 25 == 0) {
+      Future.delayed(const Duration(milliseconds: 800), () {
+        _showWorldCompleteDialog(widget.world);
+      });
+    }
+
     startAnimation();
-  } */
+  }
 
- void initialize(){
-  startAnimation();
- }
-
+  // ================= ANIMATION =================
   Future<void> startAnimation() async {
 
     trophyController.forward();
@@ -89,6 +97,33 @@ class _WinScreenState extends State<WinScreen>
         visibleStars[i] = true;
       });
     }
+  }
+
+  // ================= WORLD COMPLETE POPUP =================
+  void _showWorldCompleteDialog(int world) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text("🎉 World Complete!"),
+        content: Text("You unlocked World ${world + 1}!"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // close dialog
+
+              // 🔥 Go to next world LevelMap directly
+              Navigator.pushReplacementNamed(
+                context,
+                "/levels",
+                arguments: world + 1,
+              );
+            },
+            child: const Text("Continue"),
+          )
+        ],
+      ),
+    );
   }
 
   @override
@@ -183,11 +218,19 @@ class _WinScreenState extends State<WinScreen>
               /// NEXT LEVEL
               ElevatedButton(
                 onPressed: () {
+                  const int levelsPerWorld = 25;
+
+                  int nextLevel = widget.levelNumber + 1;
+                  int nextWorld =
+                      ((nextLevel - 1) ~/ levelsPerWorld) + 1;
 
                   Navigator.pushReplacementNamed(
                     context,
                     "/game",
-                    arguments: widget.levelNumber + 1,
+                    arguments: {
+                      "level": nextLevel,
+                      "world": nextWorld,
+                    },
                   );
                 },
                 style: ElevatedButton.styleFrom(
@@ -207,11 +250,13 @@ class _WinScreenState extends State<WinScreen>
               /// REPLAY
               OutlinedButton(
                 onPressed: () {
-
                   Navigator.pushReplacementNamed(
                     context,
                     "/game",
-                    arguments: widget.levelNumber,
+                    arguments: {
+                      "level": widget.levelNumber,
+                      "world": widget.world,
+                    },
                   );
                 },
                 child: const Text(
@@ -225,11 +270,9 @@ class _WinScreenState extends State<WinScreen>
               /// LEVEL MAP
               TextButton(
                 onPressed: () {
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    "/levels",
-                    (route) => route.isFirst,
-                  );
+                  if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
+                  }
                 },
                 child: const Text(
                   "Level Map",

@@ -5,19 +5,23 @@ class ProgressService {
 
   static const String _progressKey = "sudoku_progress";
 
+  static const int levelsPerWorld = 25;
+
   /// Default progress structure
   Map<String, dynamic> _defaultProgress() {
     return {
       "currentLevel": 1,
       "completedLevels": <int>[],
       "bestTimes": <String, int>{},
-      "stars": <String, int>{}
+      "stars": <String, int>{},
+
+      // 🔥 NEW
+      "highestUnlockedWorld": 1,
     };
   }
 
-  /// Load progress
+  /// ================= LOAD =================
   Future<Map<String, dynamic>> loadProgress() async {
-
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(_progressKey);
 
@@ -28,9 +32,8 @@ class ProgressService {
     return jsonDecode(data);
   }
 
-  /// Save progress
+  /// ================= SAVE =================
   Future<void> saveProgress(Map<String, dynamic> progress) async {
-
     final prefs = await SharedPreferences.getInstance();
 
     await prefs.setString(
@@ -39,17 +42,7 @@ class ProgressService {
     );
   }
 
-  /// Save level progress (called from GameScreen)
-  Future<void> saveLevelProgress({
-    required int levelNumber,
-    required int stars,
-    required int time,
-  }) async {
-
-    await completeLevel(levelNumber, time, stars);
-  }
-
-  /// Complete level
+  /// ================= LEVEL COMPLETE =================
   Future<void> completeLevel(
     int level,
     int timeInSeconds,
@@ -91,7 +84,16 @@ class ProgressService {
       progress["currentLevel"] = level + 1;
     }
 
-    /// Save updated values back
+    /// 🔥 WORLD UNLOCK LOGIC
+    if (level % levelsPerWorld == 0) {
+      int completedWorld = level ~/ levelsPerWorld;
+
+      if (progress["highestUnlockedWorld"] <= completedWorld) {
+        progress["highestUnlockedWorld"] = completedWorld + 1;
+      }
+    }
+
+    /// Save updated values
     progress["completedLevels"] = completed;
     progress["bestTimes"] = bestTimes;
     progress["stars"] = starsMap;
@@ -99,9 +101,59 @@ class ProgressService {
     await saveProgress(progress);
   }
 
-  /// Unlock next level manually (optional)
-  Future<void> unlockNextLevel(int level) async {
+  /// ================= WORLD HELPERS =================
 
+  /// Get world from level
+  int getWorldFromLevel(int level) {
+    return ((level - 1) ~/ levelsPerWorld) + 1;
+  }
+
+  /// Get highest unlocked world
+  Future<int> getHighestUnlockedWorld() async {
+    var progress = await loadProgress();
+    return progress["highestUnlockedWorld"] ?? 1;
+  }
+
+  /// Check if world is completed
+  Future<bool> isWorldCompleted(int world) async {
+    var progress = await loadProgress();
+
+    List<int> completed =
+        List<int>.from(progress["completedLevels"]);
+
+    int startLevel = (world - 1) * levelsPerWorld + 1;
+    int endLevel = world * levelsPerWorld;
+
+    for (int i = startLevel; i <= endLevel; i++) {
+      if (!completed.contains(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Manually unlock next world (optional use)
+  Future<void> unlockNextWorld(int world) async {
+    var progress = await loadProgress();
+
+    if (progress["highestUnlockedWorld"] <= world) {
+      progress["highestUnlockedWorld"] = world + 1;
+    }
+
+    await saveProgress(progress);
+  }
+
+  /// ================= EXISTING METHODS =================
+
+  Future<void> saveLevelProgress({
+    required int levelNumber,
+    required int stars,
+    required int time,
+  }) async {
+    await completeLevel(levelNumber, time, stars);
+  }
+
+  Future<void> unlockNextLevel(int level) async {
     var progress = await loadProgress();
 
     if (progress["currentLevel"] <= level) {
@@ -111,30 +163,22 @@ class ProgressService {
     await saveProgress(progress);
   }
 
-  /// Next playable level
   Future<int> getNextUnlockedLevel() async {
-
     var progress = await loadProgress();
     return progress["currentLevel"];
   }
 
-  /// Current unlocked level
   Future<int> getCurrentLevel() async {
-
     var progress = await loadProgress();
     return progress["currentLevel"];
   }
 
-  /// Check level unlocked
   Future<bool> isLevelUnlocked(int level) async {
-
     int currentLevel = await getCurrentLevel();
     return level <= currentLevel;
   }
 
-  /// Get stars
   Future<int> getStars(int level) async {
-
     var progress = await loadProgress();
     Map<String, dynamic> starsMap =
         Map<String, dynamic>.from(progress["stars"]);
@@ -142,9 +186,7 @@ class ProgressService {
     return starsMap[level.toString()] ?? 0;
   }
 
-  /// Get best time (in seconds)
   Future<int?> getBestTime(int level) async {
-
     var progress = await loadProgress();
     Map<String, dynamic> bestTimes =
         Map<String, dynamic>.from(progress["bestTimes"]);
@@ -152,16 +194,12 @@ class ProgressService {
     return bestTimes[level.toString()];
   }
 
-  /// Reset progress
   Future<void> resetProgress() async {
-
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_progressKey);
   }
 
-  /// Visible levels (completed + next 20 locked)
   Future<List<int>> getVisibleLevels() async {
-
     int currentLevel = await getCurrentLevel();
 
     int maxVisible = currentLevel + 20;

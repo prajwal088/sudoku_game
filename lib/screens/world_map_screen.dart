@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../widgets/world_tile.dart';
+import '../services/progress_service.dart'; // ✅ NEW
 import 'level_map_screen.dart';
 
 class WorldMapScreen extends StatefulWidget {
@@ -11,15 +12,44 @@ class WorldMapScreen extends StatefulWidget {
 }
 
 class _WorldMapScreenState extends State<WorldMapScreen> {
+
   // 🔥 Configurable
   final int totalWorlds = 10;
   final int levelsPerWorld = 25;
 
-  // TODO: Replace with real progress data
+  final ProgressService progressService = ProgressService(); // ✅ NEW
+
   int highestUnlockedWorld = 1;
+  bool loading = true; // ✅ NEW
+
+  @override
+  void initState() {
+    super.initState();
+    loadProgress(); // ✅ NEW
+  }
+
+  // ================= LOAD PROGRESS =================
+  Future<void> loadProgress() async {
+    highestUnlockedWorld =
+        await progressService.getHighestUnlockedWorld();
+
+    if (!mounted) return;
+
+    setState(() {
+      loading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+
+    // ✅ LOADING STATE
+    if (loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Select World"),
@@ -29,7 +59,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         padding: const EdgeInsets.all(16),
         child: GridView.builder(
           itemCount: totalWorlds,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate:
+              const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 16,
             crossAxisSpacing: 16,
@@ -38,17 +69,17 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
           itemBuilder: (context, index) {
             final int worldNumber = index + 1;
 
-            final bool isLocked = worldNumber > highestUnlockedWorld;
+            final bool isLocked =
+                worldNumber > highestUnlockedWorld;
 
             return WorldTile(
               worldNumber: worldNumber,
               isLocked: isLocked,
 
-              // 🔥 Optional progress (mock for now)
+              // 🔥 (Optional improvement later: calculate real stars)
               starsEarned: isLocked ? 0 : (worldNumber * 5),
               totalLevels: levelsPerWorld,
 
-              // 🎨 Optional color per world
               color: _getWorldColor(worldNumber),
 
               onTap: () {
@@ -60,9 +91,13 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => LevelMapScreen(world: worldNumber),
+                    builder: (_) =>
+                        LevelMapScreen(world: worldNumber),
                   ),
-                );
+                ).then((_) {
+                  // ✅ REFRESH AFTER RETURN
+                  loadProgress();
+                });
               },
             );
           },
@@ -71,7 +106,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
     );
   }
 
-  // 🎨 Different color per world (simple theme system)
+  // 🎨 Different color per world
   Color _getWorldColor(int world) {
     const colors = [
       Colors.blue,

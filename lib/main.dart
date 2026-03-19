@@ -44,14 +44,20 @@ class SudokuApp extends StatelessWidget {
       onGenerateRoute: (settings) {
         /// ✅ GAME SCREEN
         if (settings.name == "/game") {
-          final level = settings.arguments as int;
+          final args = settings.arguments as Map<String, dynamic>;
+
+          final level = args["level"] as int;
+          final world = args["world"] as int;
 
           return MaterialPageRoute(
-            builder: (context) => GameScreen(levelNumber: level),
+            builder: (context) => GameScreen(
+              levelNumber: level,
+              world: world,
+            ),
           );
         }
 
-        /// ✅ LEVEL MAP WITH WORLD ARGUMENT
+        /// ✅ LEVEL MAP SCREEN (FIXED)
         if (settings.name == "/levels") {
           final world = settings.arguments as int;
 

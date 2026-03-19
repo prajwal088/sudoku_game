@@ -16,10 +16,12 @@ import 'win_screen.dart';
 
 class GameScreen extends StatefulWidget {
   final int levelNumber;
+  final int world;
 
   const GameScreen({
     super.key,
     required this.levelNumber,
+    required this.world,
   });
 
   @override
@@ -320,6 +322,7 @@ void giveHint() {
           levelNumber: widget.levelNumber,
           stars: stars,
           time: formatTime(),
+          world: widget.world,
         ),
       ),
     );
