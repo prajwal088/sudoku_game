@@ -297,6 +297,7 @@ void giveHint() {
     int stars = calculateStars();
 
     progressService.saveLevelProgress(
+      world: widget.world,
       levelNumber: widget.levelNumber,
       stars: stars,
       time: getCurrentTime().inSeconds,

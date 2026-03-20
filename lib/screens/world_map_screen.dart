@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../widgets/world_tile.dart';
-import '../services/progress_service.dart'; // ✅ NEW
+import '../services/progress_service.dart';
 import 'level_map_screen.dart';
 
 class WorldMapScreen extends StatefulWidget {
@@ -12,38 +12,65 @@ class WorldMapScreen extends StatefulWidget {
 }
 
 class _WorldMapScreenState extends State<WorldMapScreen> {
+  // ================= CONFIGURATION =================
 
-  // 🔥 Configurable
   final int totalWorlds = 10;
   final int levelsPerWorld = 25;
 
-  final ProgressService progressService = ProgressService(); // ✅ NEW
+  final ProgressService progressService = ProgressService();
 
   int highestUnlockedWorld = 1;
-  bool loading = true; // ✅ NEW
+
+  bool loading = true;
+  bool _isLoadingProgress = false;
+
+  Map<int, int> worldStars = {};
 
   @override
   void initState() {
     super.initState();
-    loadProgress(); // ✅ NEW
+    loadProgress();
   }
 
   // ================= LOAD PROGRESS =================
+
   Future<void> loadProgress() async {
-    highestUnlockedWorld =
-        await progressService.getHighestUnlockedWorld();
+    if (_isLoadingProgress) return;
 
-    if (!mounted) return;
+    _isLoadingProgress = true;
 
-    setState(() {
-      loading = false;
-    });
+    try {
+      final unlockedWorld =
+          await progressService.getHighestUnlockedWorld();
+
+      Map<int, int> tempStars = {};
+
+      for (int world = 1; world <= totalWorlds; world++) {
+        tempStars[world] =
+            await progressService.getStarsForWorld(world);
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        highestUnlockedWorld = unlockedWorld;
+        worldStars = tempStars;
+        loading = false;
+      });
+    } catch (e) {
+      // Optional: log error in production (Crashlytics etc.)
+      if (!mounted) return;
+
+      setState(() {
+        loading = false;
+      });
+    } finally {
+      _isLoadingProgress = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-
-    // ✅ LOADING STATE
     if (loading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -55,6 +82,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         title: const Text("Select World"),
         centerTitle: true,
       ),
+
+      // ================= WORLD GRID =================
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: GridView.builder(
@@ -76,28 +105,33 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
               worldNumber: worldNumber,
               isLocked: isLocked,
 
-              // 🔥 (Optional improvement later: calculate real stars)
-              starsEarned: isLocked ? 0 : (worldNumber * 5),
-              totalLevels: levelsPerWorld,
+              /// ✅ Real stars
+              starsEarned:
+                  isLocked ? 0 : (worldStars[worldNumber] ?? 0),
+
+              /// ✅ Total stars = 25 * 3
+              totalLevels: levelsPerWorld * 3,
 
               color: _getWorldColor(worldNumber),
 
-              onTap: () {
+              onTap: () async {
                 if (isLocked) {
                   _showLockedMessage(context);
                   return;
                 }
 
-                Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
                         LevelMapScreen(world: worldNumber),
                   ),
-                ).then((_) {
-                  // ✅ REFRESH AFTER RETURN
+                );
+
+                /// ✅ Safe refresh after return
+                if (mounted) {
                   loadProgress();
-                });
+                }
               },
             );
           },
@@ -106,7 +140,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
     );
   }
 
-  // 🎨 Different color per world
+  // ================= WORLD COLOR =================
+
   Color _getWorldColor(int world) {
     const colors = [
       Colors.blue,
@@ -123,6 +158,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
 
     return colors[(world - 1) % colors.length];
   }
+
+  // ================= LOCK MESSAGE =================
 
   void _showLockedMessage(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(

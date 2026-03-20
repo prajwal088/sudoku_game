@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/progress_service.dart';
 
 class WinScreen extends StatefulWidget {
-  final int levelNumber;
+  final int levelNumber; // GLOBAL level (1–∞)
   final int stars;
   final String time;
   final int world;
@@ -28,6 +28,8 @@ class _WinScreenState extends State<WinScreen>
   late Animation<double> trophyScale;
 
   List<bool> visibleStars = [false, false, false];
+
+  bool _isSaved = false; // ✅ FIX: prevent duplicate execution
 
   @override
   void initState() {
@@ -61,19 +63,32 @@ class _WinScreenState extends State<WinScreen>
 
   // ================= INIT =================
   Future<void> initialize() async {
+
+    if (_isSaved) return;
+    _isSaved = true;
+
     int timeInSeconds = convertTimeToSeconds(widget.time);
+
+    const int levelsPerWorld = 25;
+
+    // ✅ GLOBAL → LOCAL conversion
+    int localLevel =
+        widget.levelNumber - ((widget.world - 1) * levelsPerWorld);
 
     // ✅ SAVE PROGRESS
     await progressService.completeLevel(
-      widget.levelNumber,
+      widget.world,
+      localLevel,
       timeInSeconds,
       widget.stars,
     );
 
-    // ✅ CHECK WORLD COMPLETION
-    if (widget.levelNumber % 25 == 0) {
+    // ✅ WORLD COMPLETE CHECK
+    if (localLevel == levelsPerWorld) {
       Future.delayed(const Duration(milliseconds: 800), () {
-        _showWorldCompleteDialog(widget.world);
+        if (mounted) {
+          _showWorldCompleteDialog(widget.world);
+        }
       });
     }
 
@@ -83,11 +98,15 @@ class _WinScreenState extends State<WinScreen>
   // ================= ANIMATION =================
   Future<void> startAnimation() async {
 
+    if (!mounted) return;
+
     trophyController.forward();
 
     await Future.delayed(const Duration(milliseconds: 400));
 
-    for (int i = 0; i < widget.stars && i < visibleStars.length; i++) {
+    int safeStars = widget.stars.clamp(0, 3); // ✅ FIX
+
+    for (int i = 0; i < safeStars; i++) {
 
       await Future.delayed(const Duration(milliseconds: 350));
 
@@ -110,9 +129,10 @@ class _WinScreenState extends State<WinScreen>
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // close dialog
+              if (!mounted) return;
 
-              // 🔥 Go to next world LevelMap directly
+              Navigator.pop(context);
+
               Navigator.pushReplacementNamed(
                 context,
                 "/levels",
@@ -153,9 +173,7 @@ class _WinScreenState extends State<WinScreen>
       body: SafeArea(
         child: Center(
           child: Column(
-
             mainAxisAlignment: MainAxisAlignment.center,
-
             children: [
 
               /// TROPHY
@@ -218,6 +236,7 @@ class _WinScreenState extends State<WinScreen>
               /// NEXT LEVEL
               ElevatedButton(
                 onPressed: () {
+
                   const int levelsPerWorld = 25;
 
                   int nextLevel = widget.levelNumber + 1;

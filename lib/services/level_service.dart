@@ -122,7 +122,12 @@ class LevelService {
     int completionTime,
     int stars,
   ) async {
+
+    // derive world from global level
+      int world = _getWorld(levelNumber);
+
     await _progressService.completeLevel(
+      world,
       levelNumber,
       completionTime,
       stars,

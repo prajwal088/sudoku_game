@@ -2,20 +2,16 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ProgressService {
-
   static const String _progressKey = "sudoku_progress";
-
   static const int levelsPerWorld = 25;
 
-  /// Default progress structure
+  /// ================= DEFAULT =================
   Map<String, dynamic> _defaultProgress() {
     return {
       "currentLevel": 1,
       "completedLevels": <int>[],
       "bestTimes": <String, int>{},
       "stars": <String, int>{},
-
-      // 🔥 NEW
       "highestUnlockedWorld": 1,
     };
   }
@@ -29,71 +25,81 @@ class ProgressService {
       return _defaultProgress();
     }
 
-    return jsonDecode(data);
+    Map<String, dynamic> progress = jsonDecode(data);
+
+    /// ✅ Strong type safety (IMPORTANT)
+    progress["currentLevel"] = progress["currentLevel"] ?? 1;
+
+    progress["completedLevels"] =
+        List<int>.from(progress["completedLevels"] ?? []);
+
+    progress["bestTimes"] =
+        Map<String, int>.from(progress["bestTimes"] ?? {});
+
+    progress["stars"] =
+        Map<String, int>.from(progress["stars"] ?? {});
+
+    progress["highestUnlockedWorld"] =
+        progress["highestUnlockedWorld"] ?? 1;
+
+    return progress;
   }
 
   /// ================= SAVE =================
   Future<void> saveProgress(Map<String, dynamic> progress) async {
     final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(
-      _progressKey,
-      jsonEncode(progress),
-    );
+    await prefs.setString(_progressKey, jsonEncode(progress));
   }
 
   /// ================= LEVEL COMPLETE =================
   Future<void> completeLevel(
+    int world,
     int level,
     int timeInSeconds,
     int stars,
   ) async {
-
     var progress = await loadProgress();
 
-    List<int> completed =
-        List<int>.from(progress["completedLevels"]);
+    int globalLevel = (world - 1) * levelsPerWorld + level;
 
-    Map<String, dynamic> bestTimes =
-        Map<String, dynamic>.from(progress["bestTimes"]);
-
-    Map<String, dynamic> starsMap =
-        Map<String, dynamic>.from(progress["stars"]);
+    List<int> completed = List<int>.from(progress["completedLevels"]);
+    Map<String, int> bestTimes =
+        Map<String, int>.from(progress["bestTimes"]);
+    Map<String, int> starsMap =
+        Map<String, int>.from(progress["stars"]);
 
     /// Add completed level
-    if (!completed.contains(level)) {
-      completed.add(level);
+    if (!completed.contains(globalLevel)) {
+      completed.add(globalLevel);
     }
 
     /// Best time (lower is better)
-    if (!bestTimes.containsKey(level.toString()) ||
-        timeInSeconds < bestTimes[level.toString()]) {
-
-      bestTimes[level.toString()] = timeInSeconds;
+    if (!bestTimes.containsKey(globalLevel.toString()) ||
+        timeInSeconds < bestTimes[globalLevel.toString()]!) {
+      bestTimes[globalLevel.toString()] = timeInSeconds;
     }
 
     /// Stars (higher is better)
-    if (!starsMap.containsKey(level.toString()) ||
-        stars > starsMap[level.toString()]) {
-
-      starsMap[level.toString()] = stars;
+    if (!starsMap.containsKey(globalLevel.toString()) ||
+        stars > starsMap[globalLevel.toString()]!) {
+      starsMap[globalLevel.toString()] = stars;
     }
 
     /// Unlock next level
-    if (progress["currentLevel"] <= level) {
-      progress["currentLevel"] = level + 1;
+    int currentLevel = progress["currentLevel"];
+    if (currentLevel <= globalLevel) {
+      progress["currentLevel"] = globalLevel + 1;
     }
 
-    /// 🔥 WORLD UNLOCK LOGIC
-    if (level % levelsPerWorld == 0) {
-      int completedWorld = level ~/ levelsPerWorld;
-
-      if (progress["highestUnlockedWorld"] <= completedWorld) {
-        progress["highestUnlockedWorld"] = completedWorld + 1;
+    /// Unlock next world
+    if (level == levelsPerWorld) {
+      int highestWorld = progress["highestUnlockedWorld"];
+      if (highestWorld <= world) {
+        progress["highestUnlockedWorld"] = world + 1;
       }
     }
 
-    /// Save updated values
+    /// Save
     progress["completedLevels"] = completed;
     progress["bestTimes"] = bestTimes;
     progress["stars"] = starsMap;
@@ -103,60 +109,78 @@ class ProgressService {
 
   /// ================= WORLD HELPERS =================
 
-  /// Get world from level
   int getWorldFromLevel(int level) {
     return ((level - 1) ~/ levelsPerWorld) + 1;
   }
 
-  /// Get highest unlocked world
   Future<int> getHighestUnlockedWorld() async {
     var progress = await loadProgress();
-    return progress["highestUnlockedWorld"] ?? 1;
+    return progress["highestUnlockedWorld"];
   }
 
-  /// Check if world is completed
   Future<bool> isWorldCompleted(int world) async {
     var progress = await loadProgress();
 
-    List<int> completed =
-        List<int>.from(progress["completedLevels"]);
+    List<int> completed = List<int>.from(progress["completedLevels"]);
 
     int startLevel = (world - 1) * levelsPerWorld + 1;
     int endLevel = world * levelsPerWorld;
 
     for (int i = startLevel; i <= endLevel; i++) {
-      if (!completed.contains(i)) {
-        return false;
-      }
+      if (!completed.contains(i)) return false;
     }
     return true;
   }
 
-  /// Manually unlock next world (optional use)
+  /// ================= WORLD STAR CALCULATION =================
+
+  Future<int> getStarsForWorld(int world) async {
+    var progress = await loadProgress();
+
+    Map<String, int> starsMap =
+        Map<String, int>.from(progress["stars"]);
+
+    int totalStars = 0;
+
+    int startLevel = (world - 1) * levelsPerWorld + 1;
+    int endLevel = world * levelsPerWorld;
+
+    for (int level = startLevel; level <= endLevel; level++) {
+      totalStars += starsMap[level.toString()] ?? 0;
+    }
+
+    return totalStars;
+  }
+
   Future<void> unlockNextWorld(int world) async {
     var progress = await loadProgress();
 
-    if (progress["highestUnlockedWorld"] <= world) {
+    int highestWorld = progress["highestUnlockedWorld"];
+
+    if (highestWorld <= world) {
       progress["highestUnlockedWorld"] = world + 1;
     }
 
     await saveProgress(progress);
   }
 
-  /// ================= EXISTING METHODS =================
+  /// ================= LEVEL HELPERS =================
 
   Future<void> saveLevelProgress({
+    required int world,
     required int levelNumber,
     required int stars,
     required int time,
   }) async {
-    await completeLevel(levelNumber, time, stars);
+    await completeLevel(world, levelNumber, time, stars);
   }
 
   Future<void> unlockNextLevel(int level) async {
     var progress = await loadProgress();
 
-    if (progress["currentLevel"] <= level) {
+    int currentLevel = progress["currentLevel"];
+
+    if (currentLevel <= level) {
       progress["currentLevel"] = level + 1;
     }
 
@@ -180,16 +204,18 @@ class ProgressService {
 
   Future<int> getStars(int level) async {
     var progress = await loadProgress();
-    Map<String, dynamic> starsMap =
-        Map<String, dynamic>.from(progress["stars"]);
+
+    Map<String, int> starsMap =
+        Map<String, int>.from(progress["stars"]);
 
     return starsMap[level.toString()] ?? 0;
   }
 
   Future<int?> getBestTime(int level) async {
     var progress = await loadProgress();
-    Map<String, dynamic> bestTimes =
-        Map<String, dynamic>.from(progress["bestTimes"]);
+
+    Map<String, int> bestTimes =
+        Map<String, int>.from(progress["bestTimes"]);
 
     return bestTimes[level.toString()];
   }
@@ -202,7 +228,10 @@ class ProgressService {
   Future<List<int>> getVisibleLevels() async {
     int currentLevel = await getCurrentLevel();
 
-    int maxVisible = currentLevel + 20;
+    /// ✅ FIX: removed hardcoded 25
+    int maxVisible =
+        ((currentLevel - 1) ~/ levelsPerWorld + 1) *
+            levelsPerWorld;
 
     List<int> levels = [];
 
