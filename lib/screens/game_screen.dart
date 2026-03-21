@@ -14,6 +14,18 @@ import '../logic/sudoku_validator.dart';
 
 import 'win_screen.dart';
 
+/// ============================================================================
+/// GameScreen
+/// ----------------------------------------------------------------------------
+/// Core gameplay screen.
+/// Handles:
+/// - Sudoku board rendering
+/// - User input
+/// - Timer management
+/// - Hint & undo system
+/// - Win detection & navigation
+/// ============================================================================
+
 class GameScreen extends StatefulWidget {
   final int levelNumber;
   final int world;
@@ -30,26 +42,31 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen>
     with WidgetsBindingObserver {
-
   final LevelService levelService = LevelService();
   final ProgressService progressService = ProgressService();
 
   late SudokuBoard board;
   late Level level;
 
+  /// Selected cell
   int selectedRow = -1;
   int selectedCol = -1;
 
-  List<Map<String, int>> history = [];
+  /// Undo stack
+  final List<Map<String, int>> history = [];
 
+  /// Timer
   Timer? timer;
-
   DateTime? startTime;
   Duration elapsed = Duration.zero;
   bool isRunning = false;
 
+  /// Background handling
   DateTime? pausedAt;
   static const int maxBackgroundMinutes = 15;
+
+  /// Hint tracking
+  final Set<String> hintedCells = {};
 
   bool isLoading = true;
 
@@ -57,7 +74,7 @@ class _GameScreenState extends State<GameScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    loadLevel();
+    _loadLevel();
   }
 
   @override
@@ -67,24 +84,38 @@ class _GameScreenState extends State<GameScreen>
     super.dispose();
   }
 
-  Future<void> loadLevel() async {
-    level = await levelService.getLevel(widget.levelNumber);
+  /// ==========================================================================
+  /// LOAD LEVEL (SAFE)
+  /// ==========================================================================
+  Future<void> _loadLevel() async {
+    try {
+      level = await levelService.getLevel(widget.levelNumber);
 
-    board = SudokuBoard.fromPuzzle(
-      level.puzzle,
-      level.solution,
-    );
+      board = SudokuBoard.fromPuzzle(
+        level.puzzle,
+        level.solution,
+      );
 
-    startTimer();
+      _startTimer();
 
-    setState(() {
-      isLoading = false;
-    });
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("GameScreen Load Error: $e");
+
+      if (!mounted) return;
+
+      Navigator.pop(context);
+    }
   }
 
-  // ================= TIMER =================
-
-  void startTimer() {
+  /// ==========================================================================
+  /// TIMER MANAGEMENT
+  /// ==========================================================================
+  void _startTimer() {
     startTime = DateTime.now();
     elapsed = Duration.zero;
     isRunning = true;
@@ -92,54 +123,52 @@ class _GameScreenState extends State<GameScreen>
     timer?.cancel();
 
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
+      if (!mounted || !isRunning) return;
       setState(() {});
     });
   }
 
-  void pauseTimer() {
+  void _pauseTimer() {
     if (!isRunning) return;
 
     elapsed += DateTime.now().difference(startTime!);
     isRunning = false;
   }
 
-  void resumeTimer() {
+  void _resumeTimer() {
     if (isRunning) return;
 
     startTime = DateTime.now();
     isRunning = true;
   }
 
-  Duration getCurrentTime() {
+  Duration _getCurrentTime() {
     if (!isRunning) return elapsed;
-
     return elapsed + DateTime.now().difference(startTime!);
   }
 
-  // ================= LIFECYCLE =================
-
+  /// ==========================================================================
+  /// APP LIFECYCLE HANDLING
+  /// ==========================================================================
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      pauseTimer();
+      _pauseTimer();
       pausedAt = DateTime.now();
-    } 
-    else if (state == AppLifecycleState.resumed) {
+    } else if (state == AppLifecycleState.resumed) {
       if (pausedAt != null) {
-        final difference = DateTime.now().difference(pausedAt!);
+        final diff = DateTime.now().difference(pausedAt!);
 
-        if (difference.inMinutes >= maxBackgroundMinutes) {
-          handleSessionExpired();
+        if (diff.inMinutes >= maxBackgroundMinutes) {
+          _handleSessionExpired();
           return;
         }
       }
-
-      resumeTimer();
+      _resumeTimer();
     }
   }
 
-  void handleSessionExpired() {
+  void _handleSessionExpired() {
     if (!mounted) return;
 
     timer?.cancel();
@@ -150,13 +179,13 @@ class _GameScreenState extends State<GameScreen>
       builder: (_) => AlertDialog(
         title: const Text("Session Expired"),
         content: const Text(
-          "You were away for too long.\n\nThe level will restart.",
+          "You were away too long. Level will restart.",
         ),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              restartLevel();
+              _restartLevel();
             },
             child: const Text("OK"),
           ),
@@ -165,23 +194,23 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  void restartLevel() {
-    setState(() {
-      history.clear();
-      selectedRow = -1;
-      selectedCol = -1;
-    });
+  void _restartLevel() {
+    history.clear();
+    hintedCells.clear();
 
     board = SudokuBoard.fromPuzzle(
       level.puzzle,
       level.solution,
     );
 
-    startTimer();
+    _startTimer();
+
+    setState(() {});
   }
 
-  // ================= GAME LOGIC =================
-
+  /// ==========================================================================
+  /// GAME INPUT
+  /// ==========================================================================
   void selectCell(int row, int col) {
     setState(() {
       selectedRow = row;
@@ -190,147 +219,149 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void inputNumber(int number) {
-    if (selectedRow == -1 || selectedCol == -1) return;
+    if (!_isValidSelection()) return;
 
-    if (!board.fixed[selectedRow][selectedCol]) {
-      history.add({
-        "row": selectedRow,
-        "col": selectedCol,
-        "value": board.board[selectedRow][selectedCol]
-      });
+    _saveHistory();
 
-      setState(() {
-        board.setNumber(selectedRow, selectedCol, number);
-      });
+    setState(() {
+      board.setNumber(selectedRow, selectedCol, number);
+    });
 
-      checkWin();
-    }
+    _checkWin();
   }
 
   void eraseNumber() {
-    if (selectedRow == -1 || selectedCol == -1) return;
+    if (!_isValidSelection()) return;
 
-    if (!board.fixed[selectedRow][selectedCol]) {
-      history.add({
-        "row": selectedRow,
-        "col": selectedCol,
-        "value": board.board[selectedRow][selectedCol]
-      });
+    _saveHistory();
 
-      setState(() {
-        board.clearCell(selectedRow, selectedCol);
-      });
-    }
+    setState(() {
+      board.clearCell(selectedRow, selectedCol);
+    });
   }
 
   void undoMove() {
     if (history.isEmpty) return;
 
-    var last = history.removeLast();
+    final last = history.removeLast();
 
     setState(() {
-      board.board[last["row"]!][last["col"]!] = last["value"]!;
+      board.setNumber(
+        last["row"]!,
+        last["col"]!,
+        last["value"]!,
+      );
     });
   }
-  
-Set<String> hintedCells = {};
 
-void giveHint() {
-
-  List<Map<String, int>> candidates = [];
-
-  for (int r = 0; r < 9; r++) {
-    for (int c = 0; c < 9; c++) {
-
-      if (board.fixed[r][c]) continue;
-
-      String key = "$r-$c";
-
-      int current = board.board[r][c];
-      int correct = board.solution[r][c];
-
-      // 🚫 Skip already hinted cells
-      if (hintedCells.contains(key)) continue;
-
-      // Only empty or incorrect cells
-      if (current == 0 || current != correct) {
-        candidates.add({"row": r, "col": c});
-      }
-    }
+  bool _isValidSelection() {
+    return selectedRow != -1 &&
+        selectedCol != -1 &&
+        !board.fixed[selectedRow][selectedCol];
   }
 
-  if (candidates.isEmpty) return;
+  void _saveHistory() {
+    history.add({
+      "row": selectedRow,
+      "col": selectedCol,
+      "value": board.board[selectedRow][selectedCol],
+    });
+  }
 
-  candidates.shuffle();
-  var pick = candidates.first;
+  /// ==========================================================================
+  /// HINT SYSTEM
+  /// ==========================================================================
+  void giveHint() {
+    List<Map<String, int>> candidates = [];
 
-  int r = pick["row"]!;
-  int c = pick["col"]!;
-  String key = "$r-$c";
+    for (int r = 0; r < 9; r++) {
+      for (int c = 0; c < 9; c++) {
+        if (board.fixed[r][c]) continue;
 
-  int currentValue = board.board[r][c];
-  int correctValue = board.solution[r][c];
+        String key = "$r-$c";
+        int current = board.board[r][c];
+        int correct = board.solution[r][c];
 
-  history.add({
-    "row": r,
-    "col": c,
-    "value": currentValue,
-  });
+        if (hintedCells.contains(key)) continue;
 
-  setState(() {
-    board.board[r][c] = correctValue;
-    selectedRow = r;
-    selectedCol = c;
+        if (current == 0 || current != correct) {
+          candidates.add({"row": r, "col": c});
+        }
+      }
+    }
 
-    // ✅ Mark as hinted
-    hintedCells.add(key);
-  });
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No hints available")),
+      );
+      return;
+    }
 
-  checkWin();
-}
+    candidates.shuffle();
+    var pick = candidates.first;
 
-  void checkWin() {
+    int r = pick["row"]!;
+    int c = pick["col"]!;
+
+    _saveHistory();
+
+    setState(() {
+      board.setNumber(r, c, board.solution[r][c]);
+      hintedCells.add("$r-$c");
+      selectedRow = r;
+      selectedCol = c;
+    });
+
+    _checkWin();
+  }
+
+  /// ==========================================================================
+  /// WIN LOGIC
+  /// ==========================================================================
+  void _checkWin() {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
 
     timer?.cancel();
 
-    int stars = calculateStars();
+    int stars = _calculateStars();
 
     progressService.saveLevelProgress(
       world: widget.world,
       levelNumber: widget.levelNumber,
       stars: stars,
-      time: getCurrentTime().inSeconds,
+      time: _getCurrentTime().inSeconds,
     );
 
-    showWinScreen(stars);
+    _showWinScreen(stars);
   }
 
-  int calculateStars() {
+  int _calculateStars() {
     int target = level.targetTime;
-    int currentSeconds = getCurrentTime().inSeconds;
+    int current = _getCurrentTime().inSeconds;
 
-    if (currentSeconds <= target) return 3;
-    if (currentSeconds <= target * 1.5) return 2;
+    if (current <= target) return 3;
+    if (current <= target * 1.5) return 2;
     return 1;
   }
 
-  void showWinScreen(int stars) {
+  void _showWinScreen(int stars) {
+    if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => WinScreen(
           levelNumber: widget.levelNumber,
           stars: stars,
-          time: formatTime(),
+          time: _formatTime(),
           world: widget.world,
         ),
       ),
     );
   }
 
-  String formatTime() {
-    final duration = getCurrentTime();
+  String _formatTime() {
+    final duration = _getCurrentTime();
 
     int minutes = duration.inMinutes;
     int secs = duration.inSeconds % 60;
@@ -338,8 +369,9 @@ void giveHint() {
     return "${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}";
   }
 
-  // ================= UI =================
-
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -356,9 +388,9 @@ void giveHint() {
         children: [
           const SizedBox(height: 12),
 
-          /// TIMER
+          /// TIMER DISPLAY
           Text(
-            formatTime(),
+            _formatTime(),
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,

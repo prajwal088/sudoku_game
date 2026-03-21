@@ -3,6 +3,24 @@ import '../models/sudoku_board.dart';
 import 'sudoku_cell.dart';
 import '../logic/sudoku_validator.dart';
 
+/// ============================================================================
+/// SudokuGrid
+/// ----------------------------------------------------------------------------
+/// Renders a 9x9 Sudoku grid using GridView.
+///
+/// Responsibilities:
+/// - Display all 81 cells
+/// - Handle selection state
+/// - Highlight row, column, and 3x3 box
+/// - Show validation errors (wrong inputs)
+/// - Render proper Sudoku borders (3x3 thick lines)
+///
+/// Performance Considerations:
+/// - Stateless (fast rebuilds)
+/// - Uses GridView.builder (lazy rendering)
+/// - Minimal per-cell computation
+/// ============================================================================
+
 class SudokuGrid extends StatelessWidget {
   final SudokuBoard board;
   final int selectedRow;
@@ -17,6 +35,13 @@ class SudokuGrid extends StatelessWidget {
     required this.onCellTap,
   });
 
+  /// ==========================================================================
+  /// HIGHLIGHT LOGIC
+  /// ==========================================================================
+  /// Highlights:
+  /// - Same row
+  /// - Same column
+  /// - Same 3x3 box
   bool isHighlighted(int row, int col) {
     if (selectedRow == -1 || selectedCol == -1) return false;
 
@@ -26,10 +51,33 @@ class SudokuGrid extends StatelessWidget {
             col ~/ 3 == selectedCol ~/ 3);
   }
 
+  /// ==========================================================================
+  /// VALIDATION (SAFE CHECK)
+  /// ==========================================================================
+  /// Ensures current cell value is valid without self-conflict
+  bool isWrongCell(int row, int col, int value) {
+    if (value == 0) return false;
+
+    // Temporarily remove value to avoid self-check conflict
+    final temp = board.board[row][col];
+    board.board[row][col] = 0;
+
+    final isValid =
+        SudokuValidator.isValidMove(board.board, row, col, value);
+
+    // Restore value
+    board.board[row][col] = temp;
+
+    return !isValid;
+  }
+
+  /// ==========================================================================
+  /// BUILD
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
-      aspectRatio: 1,
+      aspectRatio: 1, // Perfect square grid
       child: GridView.builder(
         physics: const NeverScrollableScrollPhysics(),
         itemCount: 81,
@@ -37,48 +85,53 @@ class SudokuGrid extends StatelessWidget {
           crossAxisCount: 9,
         ),
         itemBuilder: (context, index) {
-          int row = index ~/ 9;
-          int col = index % 9;
+          final int row = index ~/ 9;
+          final int col = index % 9;
 
-          int value = board.board[row][col];
+          final int value = board.board[row][col];
 
-          bool wrong = false;
+          final bool selected =
+              row == selectedRow && col == selectedCol;
 
-          if (value != 0) {
-            wrong =
-                !SudokuValidator.isValidMove(board.board, row, col, value);
-          }
+          final bool highlighted = isHighlighted(row, col);
 
-          bool highlighted = isHighlighted(row, col);
-          bool selected = row == selectedRow && col == selectedCol;
+          final bool isWrong = isWrongCell(row, col, value);
 
           return Container(
             decoration: BoxDecoration(
               border: Border(
+                /// TOP BORDER
                 top: BorderSide(
                   width: row % 3 == 0 ? 2 : 0.5,
                   color: Colors.black,
                 ),
+
+                /// LEFT BORDER
                 left: BorderSide(
                   width: col % 3 == 0 ? 2 : 0.5,
                   color: Colors.black,
                 ),
+
+                /// RIGHT BORDER
                 right: BorderSide(
                   width: (col + 1) % 3 == 0 ? 2 : 0.5,
                   color: Colors.black,
                 ),
+
+                /// BOTTOM BORDER
                 bottom: BorderSide(
                   width: (row + 1) % 3 == 0 ? 2 : 0.5,
                   color: Colors.black,
                 ),
               ),
             ),
+
             child: SudokuCell(
               number: value,
               fixed: board.fixed[row][col],
               selected: selected,
               highlighted: highlighted,
-              isWrong: wrong,
+              isWrong: isWrong,
               onTap: () => onCellTap(row, col),
             ),
           );

@@ -1,8 +1,21 @@
 import 'package:flutter/material.dart';
 import '../services/progress_service.dart';
 
+/// ============================================================================
+/// WinScreen
+/// ----------------------------------------------------------------------------
+/// Purpose:
+/// - Display level completion UI
+/// - Show stars animation
+/// - Handle navigation (Next / Replay / Map)
+///
+/// IMPORTANT:
+/// - Progress saving is handled in GameScreen (NOT here)
+/// - This screen is purely UI + navigation
+/// ============================================================================
+
 class WinScreen extends StatefulWidget {
-  final int levelNumber; // GLOBAL level (1–∞)
+  final int levelNumber; // GLOBAL level
   final int stars;
   final String time;
   final int world;
@@ -21,104 +34,80 @@ class WinScreen extends StatefulWidget {
 
 class _WinScreenState extends State<WinScreen>
     with TickerProviderStateMixin {
-
   final ProgressService progressService = ProgressService();
 
-  late AnimationController trophyController;
-  late Animation<double> trophyScale;
+  late AnimationController _trophyController;
+  late Animation<double> _trophyScale;
 
-  List<bool> visibleStars = [false, false, false];
-
-  bool _isSaved = false; // ✅ FIX: prevent duplicate execution
+  /// Controls star animation visibility
+  final List<bool> _visibleStars = [false, false, false];
 
   @override
   void initState() {
     super.initState();
 
-    trophyController = AnimationController(
+    _trophyController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
 
-    trophyScale = Tween<double>(
+    _trophyScale = Tween<double>(
       begin: 0,
       end: 1,
     ).animate(
       CurvedAnimation(
-        parent: trophyController,
+        parent: _trophyController,
         curve: Curves.elasticOut,
       ),
     );
 
-    initialize();
+    _initialize();
   }
 
-  // ================= TIME CONVERSION =================
-  int convertTimeToSeconds(String time) {
-    final parts = time.split(":");
-    final minutes = int.parse(parts[0]);
-    final seconds = int.parse(parts[1]);
-    return minutes * 60 + seconds;
-  }
+  /// ==========================================================================
+  /// INITIALIZATION
+  /// ==========================================================================
+  Future<void> _initialize() async {
+    /// Check if world is completed (accurate check)
+    final isCompleted =
+        await progressService.isWorldCompleted(widget.world);
 
-  // ================= INIT =================
-  Future<void> initialize() async {
-
-    if (_isSaved) return;
-    _isSaved = true;
-
-    int timeInSeconds = convertTimeToSeconds(widget.time);
-
-    const int levelsPerWorld = 25;
-
-    // ✅ GLOBAL → LOCAL conversion
-    int localLevel =
-        widget.levelNumber - ((widget.world - 1) * levelsPerWorld);
-
-    // ✅ SAVE PROGRESS
-    await progressService.completeLevel(
-      widget.world,
-      localLevel,
-      timeInSeconds,
-      widget.stars,
-    );
-
-    // ✅ WORLD COMPLETE CHECK
-    if (localLevel == levelsPerWorld) {
+    if (isCompleted) {
       Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) {
-          _showWorldCompleteDialog(widget.world);
-        }
+        if (!mounted) return;
+        _showWorldCompleteDialog(widget.world);
       });
     }
 
-    startAnimation();
+    _startAnimation();
   }
 
-  // ================= ANIMATION =================
-  Future<void> startAnimation() async {
-
+  /// ==========================================================================
+  /// STAR + TROPHY ANIMATION
+  /// ==========================================================================
+  Future<void> _startAnimation() async {
     if (!mounted) return;
 
-    trophyController.forward();
+    _trophyController.forward();
 
     await Future.delayed(const Duration(milliseconds: 400));
 
-    int safeStars = widget.stars.clamp(0, 3); // ✅ FIX
+    int safeStars = widget.stars.clamp(0, 3);
 
     for (int i = 0; i < safeStars; i++) {
-
       await Future.delayed(const Duration(milliseconds: 350));
 
       if (!mounted) return;
 
       setState(() {
-        visibleStars[i] = true;
+        _visibleStars[i] = true;
       });
     }
   }
 
-  // ================= WORLD COMPLETE POPUP =================
+  /// ==========================================================================
+  /// WORLD COMPLETE DIALOG
+  /// ==========================================================================
   void _showWorldCompleteDialog(int world) {
     showDialog(
       context: context,
@@ -129,8 +118,6 @@ class _WinScreenState extends State<WinScreen>
         actions: [
           TextButton(
             onPressed: () {
-              if (!mounted) return;
-
               Navigator.pop(context);
 
               Navigator.pushReplacementNamed(
@@ -146,15 +133,45 @@ class _WinScreenState extends State<WinScreen>
     );
   }
 
+  /// ==========================================================================
+  /// NAVIGATION HELPERS
+  /// ==========================================================================
+  /// Converts GLOBAL level → correct world + level
+  Map<String, int> _getNextLevelArgs() {
+    final int globalNext = widget.levelNumber + 1;
+
+    final int world =
+        progressService.getWorldFromGlobal(globalNext);
+
+    final int level =
+        progressService.getLevelInWorld(globalNext);
+
+    return {
+      "world": world,
+      "level": level,
+    };
+  }
+
+  Map<String, int> _getReplayArgs() {
+    return {
+      "world": widget.world,
+      "level":
+          progressService.getLevelInWorld(widget.levelNumber),
+    };
+  }
+
   @override
   void dispose() {
-    trophyController.dispose();
+    _trophyController.dispose();
     super.dispose();
   }
 
-  Widget buildStar(int index) {
+  /// ==========================================================================
+  /// STAR WIDGET
+  /// ==========================================================================
+  Widget _buildStar(int index) {
     return AnimatedScale(
-      scale: visibleStars[index] ? 1 : 0,
+      scale: _visibleStars[index] ? 1 : 0,
       duration: const Duration(milliseconds: 400),
       curve: Curves.elasticOut,
       child: const Icon(
@@ -165,9 +182,11 @@ class _WinScreenState extends State<WinScreen>
     );
   }
 
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Colors.green.shade50,
       body: SafeArea(
@@ -175,10 +194,9 @@ class _WinScreenState extends State<WinScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-
-              /// TROPHY
+              /// TROPHY ICON
               ScaleTransition(
-                scale: trophyScale,
+                scale: _trophyScale,
                 child: const Icon(
                   Icons.emoji_events,
                   size: 120,
@@ -198,6 +216,7 @@ class _WinScreenState extends State<WinScreen>
 
               const SizedBox(height: 10),
 
+              /// GLOBAL LEVEL DISPLAY
               Text(
                 "Level ${widget.levelNumber}",
                 style: const TextStyle(
@@ -212,11 +231,11 @@ class _WinScreenState extends State<WinScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  buildStar(0),
+                  _buildStar(0),
                   const SizedBox(width: 10),
-                  buildStar(1),
+                  _buildStar(1),
                   const SizedBox(width: 10),
-                  buildStar(2),
+                  _buildStar(2),
                 ],
               ),
 
@@ -236,20 +255,10 @@ class _WinScreenState extends State<WinScreen>
               /// NEXT LEVEL
               ElevatedButton(
                 onPressed: () {
-
-                  const int levelsPerWorld = 25;
-
-                  int nextLevel = widget.levelNumber + 1;
-                  int nextWorld =
-                      ((nextLevel - 1) ~/ levelsPerWorld) + 1;
-
                   Navigator.pushReplacementNamed(
                     context,
                     "/game",
-                    arguments: {
-                      "level": nextLevel,
-                      "world": nextWorld,
-                    },
+                    arguments: _getNextLevelArgs(),
                   );
                 },
                 style: ElevatedButton.styleFrom(
@@ -266,38 +275,27 @@ class _WinScreenState extends State<WinScreen>
 
               const SizedBox(height: 15),
 
-              /// REPLAY
+              /// REPLAY LEVEL
               OutlinedButton(
                 onPressed: () {
                   Navigator.pushReplacementNamed(
                     context,
                     "/game",
-                    arguments: {
-                      "level": widget.levelNumber,
-                      "world": widget.world,
-                    },
+                    arguments: _getReplayArgs(),
                   );
                 },
-                child: const Text(
-                  "Replay Level",
-                  style: TextStyle(fontSize: 16),
-                ),
+                child: const Text("Replay Level"),
               ),
 
               const SizedBox(height: 15),
 
-              /// LEVEL MAP
+              /// BACK TO LEVEL MAP
               TextButton(
                 onPressed: () {
-                  if (Navigator.canPop(context)) {
-                    Navigator.pop(context);
-                  }
+                  Navigator.pop(context);
                 },
-                child: const Text(
-                  "Level Map",
-                  style: TextStyle(fontSize: 16),
-                ),
-              )
+                child: const Text("Level Map"),
+              ),
             ],
           ),
         ),

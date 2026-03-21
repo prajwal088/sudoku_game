@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../models/level.dart';
 import '../services/level_service.dart';
+import '../services/progress_service.dart';
+
+/// ============================================================================
+/// LevelMapScreen
+/// ----------------------------------------------------------------------------
+/// Displays levels inside a selected world.
+/// Responsibilities:
+/// - Render level grid
+/// - Handle level locking/unlocking
+/// - Navigate to GameScreen
+/// - Highlight current playable level
+///
+/// Architecture:
+/// - ProgressService → Source of truth (global level)
+/// - LevelService → Provides level data
+/// ============================================================================
 
 class LevelMapScreen extends StatefulWidget {
   final int world;
@@ -14,9 +30,12 @@ class LevelMapScreen extends StatefulWidget {
 
 class _LevelMapScreenState extends State<LevelMapScreen> {
   final LevelService _levelService = LevelService();
+  final ProgressService _progressService = ProgressService();
 
   List<Level> levels = [];
   bool loading = true;
+
+  int currentGlobalLevel = 1;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -26,7 +45,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   @override
   void initState() {
     super.initState();
-    loadLevels();
+    _loadData();
   }
 
   @override
@@ -35,51 +54,81 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     super.dispose();
   }
 
-  // ================= LOAD =================
-  Future<void> loadLevels() async {
+  /// ==========================================================================
+  /// LOAD LEVELS + PROGRESS
+  /// ==========================================================================
+  Future<void> _loadData() async {
     final loadedLevels =
         await _levelService.getLevelsByWorld(widget.world);
+
+    final globalLevel =
+        await _progressService.getNextUnlockedLevel();
 
     if (!mounted) return;
 
     setState(() {
       levels = loadedLevels;
+      currentGlobalLevel = globalLevel;
       loading = false;
     });
 
+    /// Scroll after UI is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      scrollToCurrentLevel();
+      _scrollToCurrentLevel();
     });
   }
 
-  // ================= CURRENT LEVEL =================
-  int getCurrentLevelIndex() {
-    if (levels.isEmpty) return 0;
+  /// ==========================================================================
+  /// LOCK LOGIC (GLOBAL SOURCE OF TRUTH)
+  /// ==========================================================================
+  bool isLevelLocked(int index) {
+    int globalLevel =
+        _progressService.getGlobalLevel(widget.world, index + 1);
 
-    for (int i = 0; i < levels.length; i++) {
-      if (levels[i].isLocked) {
-        return i - 1 >= 0 ? i - 1 : 0;
-      }
-    }
-    return levels.length - 1;
+    return globalLevel > currentGlobalLevel;
   }
 
-  void scrollToCurrentLevel() {
-    int index = getCurrentLevelIndex();
+  /// ==========================================================================
+  /// CURRENT LEVEL INDEX (ACCURATE)
+  /// ==========================================================================
+  int getCurrentLevelIndex() {
+    int localLevel =
+        _progressService.getLevelInWorld(currentGlobalLevel);
 
+    return (localLevel - 1).clamp(0, levels.length - 1);
+  }
+
+  /// ==========================================================================
+  /// AUTO SCROLL TO CURRENT LEVEL
+  /// ==========================================================================
+  void _scrollToCurrentLevel() {
+    if (levels.isEmpty) return;
+
+    int index = getCurrentLevelIndex();
     int row = index ~/ itemsPerRow;
+
     double offset = row * itemHeight;
 
-    _scrollController.animateTo(
-      offset,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
-    );
+    /// Prevent overscroll
+    if (_scrollController.hasClients) {
+      offset = offset.clamp(
+        0,
+        _scrollController.position.maxScrollExtent,
+      );
+
+      _scrollController.animateTo(
+        offset,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
-  // ================= NAVIGATION =================
-  void openLevel(Level level) {
-    if (level.isLocked) {
+  /// ==========================================================================
+  /// NAVIGATION
+  /// ==========================================================================
+  void _openLevel(Level level, int index) {
+    if (isLevelLocked(index)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Complete previous level to unlock"),
@@ -92,13 +141,30 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       context,
       "/game",
       arguments: {
-        "level": level.levelNumber,
+        "level": level.levelNumber, // LOCAL level
         "world": widget.world,
       },
-    ).then((_) => loadLevels());
+    ).then((_) => _loadData());
   }
 
-  // ================= UI =================
+  /// ==========================================================================
+  /// LEVEL COLOR LOGIC
+  /// ==========================================================================
+  Color getLevelColor(Level level, int index) {
+    if (isLevelLocked(index)) {
+      return Colors.grey.shade300;
+    }
+
+    if (level.isCompleted) {
+      return Colors.green.shade400;
+    }
+
+    return Colors.orange.shade400;
+  }
+
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -127,21 +193,18 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         ),
         itemBuilder: (context, index) {
           final level = levels[index];
+          final locked = isLevelLocked(index);
           final isCurrent = index == currentIndex;
 
           return GestureDetector(
-            onTap: () => openLevel(level),
+            onTap: locked ? null : () => _openLevel(level, index),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
+              duration: const Duration(milliseconds: 250),
               decoration: BoxDecoration(
-                color: level.isLocked
-                    ? Colors.grey.shade300
-                    : isCurrent
-                        ? Colors.orange.shade400
-                        : Colors.blue.shade400,
+                color: getLevelColor(level, index),
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
-                  if (!level.isLocked)
+                  if (!locked)
                     BoxShadow(
                       color: Colors.black12,
                       blurRadius: isCurrent ? 10 : 4,
@@ -158,15 +221,14 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: level.isLocked
-                            ? Colors.black38
-                            : Colors.white,
+                        color:
+                            locked ? Colors.black38 : Colors.white,
                       ),
                     ),
                   ),
 
                   /// LOCK ICON
-                  if (level.isLocked)
+                  if (locked)
                     const Center(
                       child: Icon(
                         Icons.lock,
@@ -175,7 +237,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                     ),
 
                   /// STARS
-                  if (!level.isLocked && level.stars > 0)
+                  if (!locked && level.stars > 0)
                     Positioned(
                       bottom: 4,
                       left: 0,
@@ -195,12 +257,13 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                       ),
                     ),
 
-                  /// CURRENT LEVEL GLOW
-                  if (isCurrent && !level.isLocked)
+                  /// CURRENT LEVEL HIGHLIGHT
+                  if (isCurrent && !locked)
                     Positioned.fill(
                       child: Container(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius:
+                              BorderRadius.circular(14),
                           border: Border.all(
                             color: Colors.white,
                             width: 2,

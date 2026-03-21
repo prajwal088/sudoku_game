@@ -3,6 +3,17 @@ import 'package:flutter/material.dart';
 import '../services/progress_service.dart';
 import 'world_map_screen.dart';
 
+/// ============================================================================
+/// HomeScreen
+/// ----------------------------------------------------------------------------
+/// Entry point of the game UI.
+/// Responsibilities:
+/// - Show Continue button (next playable level)
+/// - Navigate to GameScreen using correct world + level mapping
+/// - Navigate to World Map
+/// - Display basic UI & animations
+/// ============================================================================
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -12,19 +23,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
+  /// Service layer (handles all progression logic)
   final ProgressService progressService = ProgressService();
 
+  /// Animation controller for Continue button
   late AnimationController controller;
   late Animation<double> scaleAnimation;
 
+  /// Stores NEXT playable GLOBAL level
   int nextLevel = 1;
 
   @override
   void initState() {
     super.initState();
 
-    loadProgress();
+    _loadProgress();
 
+    /// Initialize animation
     controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -43,7 +58,10 @@ class _HomeScreenState extends State<HomeScreen>
     controller.repeat(reverse: true);
   }
 
-  Future<void> loadProgress() async {
+  /// ==========================================================================
+  /// LOAD USER PROGRESS
+  /// ==========================================================================
+  Future<void> _loadProgress() async {
     int level = await progressService.getNextUnlockedLevel();
 
     if (!mounted) return;
@@ -59,18 +77,46 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  void startNextLevel() async {
+  /// ==========================================================================
+  /// CONTINUE BUTTON HANDLER (PRODUCTION SAFE)
+  /// ==========================================================================
+  Future<void> _handleContinue() async {
+    /// Step 1: Get next unlocked GLOBAL level
+    int globalLevel = await progressService.getNextUnlockedLevel();
+
+    /// Safety guard (prevents invalid navigation)
+    if (globalLevel < 1) return;
+
+    /// Step 2: Convert → world + level using SERVICE (single source of truth)
+    final data = progressService.getWorldAndLevel(globalLevel);
+
+    int world = data["world"]!;
+    int level = data["level"]!;
+
+    /// Debug log (remove in release if needed)
+    // ignore: avoid_print
+    print("Continue → Global: $globalLevel | World: $world | Level: $level");
+
+    /// Step 3: Navigate to GameScreen
     await Navigator.pushNamed(
       context,
       "/game",
-      arguments: nextLevel,
+      arguments: {
+        "level": level,   // LOCAL level (1–25)
+        "world": world,   // World number
+      },
     );
 
-    await loadProgress();
+    /// Step 4: Reload progress after returning
+    if (mounted) {
+      await _loadProgress();
+    }
   }
 
-  // ✅ FIXED: Open World Map instead of old level screen
-  void openLevelMap() async {
+  /// ==========================================================================
+  /// OPEN WORLD MAP
+  /// ==========================================================================
+  Future<void> _openLevelMap() async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -78,9 +124,14 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    await loadProgress();
+    if (mounted) {
+      await _loadProgress();
+    }
   }
 
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -113,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen>
               ScaleTransition(
                 scale: scaleAnimation,
                 child: ElevatedButton(
-                  onPressed: startNextLevel,
+                  onPressed: _handleContinue,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 70,
@@ -121,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   child: Text(
-                    "Continue (Level $nextLevel)",
+                    "Continue (Level $nextLevel)", // shows GLOBAL level
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
@@ -129,9 +180,9 @@ class _HomeScreenState extends State<HomeScreen>
 
               const SizedBox(height: 15),
 
-              /// PLAY BUTTON
+              /// PLAY BUTTON (opens world map)
               OutlinedButton(
-                onPressed: openLevelMap,
+                onPressed: _openLevelMap,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 80,

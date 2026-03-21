@@ -3,112 +3,133 @@ import '../models/sudoku_board.dart';
 import 'progress_service.dart';
 import 'puzzle_repository.dart';
 
+/// ============================================================================
+/// LevelService
+/// ----------------------------------------------------------------------------
+/// Handles:
+/// - Fetching level data (puzzle + metadata)
+/// - Applying progress state (locked/completed/stars/best time)
+/// - Converting GLOBAL level ↔ WORLD/LOCAL level
+/// - Creating SudokuBoard for gameplay
+///
+/// Architecture:
+/// - Global Level = Source of truth
+/// - World/Local Level = Derived values
+/// ============================================================================
+
 class LevelService {
   final ProgressService _progressService = ProgressService();
   final PuzzleRepository _puzzleRepository = PuzzleRepository();
 
-  /// Load a level with puzzle + progress state
-  Future<Level> getLevel(int levelNumber) async {
+  /// ==========================================================================
+  /// LOAD SINGLE LEVEL
+  /// ==========================================================================
+  Future<Level> getLevel(int globalLevel) async {
     final progress = await _progressService.loadProgress();
 
-    int currentLevel = progress["currentLevel"];
+    final int currentLevel = progress["currentLevel"];
 
-    bool isLocked = levelNumber > currentLevel;
+    /// ================= PROGRESS STATE =================
+    final bool isLocked = globalLevel > currentLevel;
 
-    List completedLevels = progress["completedLevels"];
+    final List<int> completedLevels =
+        List<int>.from(progress["completedLevels"]);
 
-    bool isCompleted = completedLevels.contains(levelNumber);
+    final bool isCompleted = completedLevels.contains(globalLevel);
 
-    int stars = progress["stars"][levelNumber.toString()] ?? 0;
+    final Map<String, int> starsMap =
+        Map<String, int>.from(progress["stars"]);
 
-    int bestTime = progress["bestTimes"][levelNumber.toString()] ?? 0;
+    final Map<String, int> bestTimes =
+        Map<String, int>.from(progress["bestTimes"]);
 
-    /// Load puzzle for this level
-    final puzzleData = _puzzleRepository.getPuzzleForLevel(levelNumber);
+    final int stars = starsMap[globalLevel.toString()] ?? 0;
+    final int bestTime = bestTimes[globalLevel.toString()] ?? 0;
+
+    /// ================= WORLD / LOCAL =================
+    final int world = _progressService.getWorldFromGlobal(globalLevel);
+    final int localLevel =
+        _progressService.getLevelInWorld(globalLevel);
+
+    /// ================= PUZZLE =================
+    final Map<String, dynamic> puzzleData =
+        _puzzleRepository.getPuzzleForLevel(globalLevel);
+
+    /// ✅ Safe extraction WITHOUT unnecessary cast
+    final List<List<int>> puzzle =
+        (puzzleData["puzzle"] ?? []) as List<List<int>>;
+
+    final List<List<int>> solution =
+        (puzzleData["solution"] ?? []) as List<List<int>>;
 
     return Level(
-      levelNumber: levelNumber,
-      world: _getWorld(levelNumber), // ✅ FIXED
-      difficulty: _getDifficulty(levelNumber),
-      puzzle: puzzleData["puzzle"] as List<List<int>>,
-      solution: puzzleData["solution"] as List<List<int>>,
+      levelNumber: globalLevel,
+      world: world,
+      difficulty: _getDifficulty(globalLevel),
+      puzzle: puzzle,
+      solution: solution,
       isLocked: isLocked,
       isCompleted: isCompleted,
       stars: stars,
       bestTime: bestTime,
-      targetTime: _getTargetTime(levelNumber),
+      targetTime: _getTargetTime(globalLevel),
     );
   }
 
-  /// ✅ OPTIMIZED: Load only levels for specific world
+  /// ==========================================================================
+  /// LOAD LEVELS BY WORLD
+  /// ==========================================================================
   Future<List<Level>> getLevelsByWorld(int world) async {
-    List<int> visibleLevels = await _progressService.getVisibleLevels();
+    final List<int> visibleLevels =
+        await _progressService.getVisibleLevels();
 
     List<Level> levels = [];
 
-    for (int levelNumber in visibleLevels) {
-      if (_getWorld(levelNumber) == world) {
-        Level level = await getLevel(levelNumber);
-        levels.add(level);
+    for (final globalLevel in visibleLevels) {
+      if (_progressService.getWorldFromGlobal(globalLevel) ==
+          world) {
+        levels.add(await getLevel(globalLevel));
       }
     }
 
     return levels;
   }
 
-  /// Get multiple levels for level map
+  /// ==========================================================================
+  /// LOAD ALL VISIBLE LEVELS
+  /// ==========================================================================
   Future<List<Level>> getVisibleLevels() async {
-    List<int> visibleLevels = await _progressService.getVisibleLevels();
+    final List<int> visibleLevels =
+        await _progressService.getVisibleLevels();
 
-    List<Level> levels = [];
-
-    for (int levelNumber in visibleLevels) {
-      Level level = await getLevel(levelNumber);
-      levels.add(level);
-    }
-
-    return levels;
+    return Future.wait(
+      visibleLevels.map((lvl) => getLevel(lvl)),
+    );
   }
 
-  /// ✅ NEW: World calculation (25 levels per world)
-  int _getWorld(int level) {
-    return ((level - 1) ~/ 25) + 1;
-  }
-
-  /// Difficulty progression logic
+  /// ==========================================================================
+  /// DIFFICULTY LOGIC
+  /// ==========================================================================
   String _getDifficulty(int level) {
-    if (level <= 20) {
-      return "Easy";
-    }
-
-    if (level <= 60) {
-      return "Medium";
-    }
-
-    if (level <= 120) {
-      return "Hard";
-    }
-
+    if (level <= 20) return "Easy";
+    if (level <= 60) return "Medium";
+    if (level <= 120) return "Hard";
     return "Expert";
   }
 
+  /// ==========================================================================
+  /// TARGET TIME (seconds)
+  /// ==========================================================================
   int _getTargetTime(int level) {
-    if (level <= 20) {
-      return 300; // 5 minutes
-    }
-
-    if (level <= 60) {
-      return 600; // 10 minutes
-    }
-
-    if (level <= 120) {
-      return 900; // 15 minutes
-    }
-
-    return 1200; // 20 minutes
+    if (level <= 20) return 300;
+    if (level <= 60) return 600;
+    if (level <= 120) return 900;
+    return 1200;
   }
 
-  /// Convert Level puzzle to SudokuBoard
+  /// ==========================================================================
+  /// CREATE GAME BOARD
+  /// ==========================================================================
   SudokuBoard createBoardFromLevel(Level level) {
     return SudokuBoard.fromPuzzle(
       level.puzzle,
@@ -116,30 +137,39 @@ class LevelService {
     );
   }
 
-  /// Mark level completed and unlock next
+  /// ==========================================================================
+  /// COMPLETE LEVEL
+  /// ==========================================================================
   Future<void> completeLevel(
-    int levelNumber,
+    int globalLevel,
     int completionTime,
     int stars,
   ) async {
+    /// Convert GLOBAL → world/local (CRITICAL)
+    final int world =
+        _progressService.getWorldFromGlobal(globalLevel);
 
-    // derive world from global level
-      int world = _getWorld(levelNumber);
+    final int localLevel =
+        _progressService.getLevelInWorld(globalLevel);
 
     await _progressService.completeLevel(
       world,
-      levelNumber,
+      localLevel, // ✅ Correct mapping
       completionTime,
       stars,
     );
   }
 
-  /// Check if level unlocked
-  Future<bool> isLevelUnlocked(int levelNumber) async {
-    return await _progressService.isLevelUnlocked(levelNumber);
+  /// ==========================================================================
+  /// CHECK IF LEVEL UNLOCKED
+  /// ==========================================================================
+  Future<bool> isLevelUnlocked(int globalLevel) async {
+    return _progressService.isLevelUnlocked(globalLevel);
   }
 
-  /// Reset all progress (debug / testing)
+  /// ==========================================================================
+  /// RESET PROGRESS
+  /// ==========================================================================
   Future<void> resetProgress() async {
     await _progressService.resetProgress();
   }

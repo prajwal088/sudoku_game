@@ -3,14 +3,36 @@ import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+/// ============================================================================
+/// WorldTile
+/// ----------------------------------------------------------------------------
+/// Displays a world card in the world selection screen.
+///
+/// Features:
+/// - Lock / Unlock state
+/// - Star progress visualization
+/// - Unlock animation (Lottie)
+/// - Sound + haptic feedback
+/// - Smooth UI transitions
+///
+/// States:
+/// 🔒 Locked       → Grey, reduced opacity
+/// 🌍 Unlocked     → Gradient + progress
+/// 🎉 Unlock Event → Animation + sound
+/// ============================================================================
+
 class WorldTile extends StatefulWidget {
   final int worldNumber;
   final bool isLocked;
   final VoidCallback onTap;
 
-  /// Now used as: earnedStars / totalStars
+  /// Stars earned in this world
   final int? starsEarned;
-  final int? totalLevels; // actually totalStars (75)
+
+  /// Total stars possible (typically levelsPerWorld * 3)
+  final int? totalStars;
+
+  /// Optional theme color
   final Color? color;
 
   const WorldTile({
@@ -19,7 +41,7 @@ class WorldTile extends StatefulWidget {
     required this.isLocked,
     required this.onTap,
     this.starsEarned,
-    this.totalLevels,
+    this.totalStars,
     this.color,
   });
 
@@ -32,6 +54,9 @@ class _WorldTileState extends State<WorldTile> {
 
   bool _showUnlockAnim = false;
 
+  /// ==========================================================================
+  /// Detect unlock transition
+  /// ==========================================================================
   @override
   void didUpdateWidget(covariant WorldTile oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -41,14 +66,21 @@ class _WorldTileState extends State<WorldTile> {
     }
   }
 
+  /// ==========================================================================
+  /// UNLOCK ANIMATION + SOUND
+  /// ==========================================================================
   Future<void> _playUnlockAnimation() async {
+    if (_showUnlockAnim) return; // prevent duplicate trigger
+
     setState(() => _showUnlockAnim = true);
 
     HapticFeedback.mediumImpact();
 
     try {
       await _player.play(AssetSource('sounds/unlock.mp3'));
-    } catch (_) {}
+    } catch (_) {
+      // Fail silently (production safe)
+    }
 
     await Future.delayed(const Duration(seconds: 2));
 
@@ -57,7 +89,15 @@ class _WorldTileState extends State<WorldTile> {
     }
   }
 
+  /// ==========================================================================
+  /// TAP HANDLER
+  /// ==========================================================================
   Future<void> _handleTap() async {
+    if (widget.isLocked) {
+      HapticFeedback.heavyImpact();
+      return;
+    }
+
     HapticFeedback.selectionClick();
 
     try {
@@ -68,23 +108,32 @@ class _WorldTileState extends State<WorldTile> {
   }
 
   @override
+  void dispose() {
+    _player.dispose(); // ✅ CRITICAL FIX
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final themeColor = widget.color ?? Colors.blueAccent;
+    final Color themeColor = widget.color ?? Colors.blueAccent;
 
     final int earned = widget.starsEarned ?? 0;
-    final int total = widget.totalLevels ?? 75;
+    final int total = widget.totalStars ?? 75;
 
     final double progress =
-        total == 0 ? 0 : (earned / total).clamp(0, 1);
+        total == 0 ? 0 : (earned / total).clamp(0.0, 1.0);
 
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(20),
+
       child: InkWell(
         onTap: _handleTap,
         borderRadius: BorderRadius.circular(20),
+
         splashColor: themeColor.withValues(alpha: 0.2),
         highlightColor: Colors.white.withValues(alpha: 0.1),
+
         child: Stack(
           children: [
 
@@ -92,12 +141,15 @@ class _WorldTileState extends State<WorldTile> {
             AnimatedScale(
               scale: widget.isLocked ? 0.95 : 1,
               duration: const Duration(milliseconds: 300),
+
               child: AnimatedOpacity(
                 opacity: widget.isLocked ? 0.7 : 1,
                 duration: const Duration(milliseconds: 300),
+
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
                   padding: const EdgeInsets.all(14),
+
                   decoration: BoxDecoration(
                     gradient: widget.isLocked
                         ? LinearGradient(
@@ -114,7 +166,9 @@ class _WorldTileState extends State<WorldTile> {
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
+
                     borderRadius: BorderRadius.circular(20),
+
                     boxShadow: [
                       if (!widget.isLocked)
                         BoxShadow(
@@ -129,7 +183,7 @@ class _WorldTileState extends State<WorldTile> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
 
-                      /// HEADER
+                      /// ================= HEADER =================
                       Row(
                         mainAxisAlignment:
                             MainAxisAlignment.spaceBetween,
@@ -142,6 +196,7 @@ class _WorldTileState extends State<WorldTile> {
                               color: Colors.white,
                             ),
                           ),
+
                           Icon(
                             widget.isLocked
                                 ? Icons.lock
@@ -153,9 +208,9 @@ class _WorldTileState extends State<WorldTile> {
 
                       const Spacer(),
 
-                      /// ================= STAR COUNT TEXT =================
+                      /// ================= PROGRESS =================
                       if (widget.starsEarned != null &&
-                          widget.totalLevels != null)
+                          widget.totalStars != null)
                         Column(
                           crossAxisAlignment:
                               CrossAxisAlignment.start,
@@ -168,9 +223,10 @@ class _WorldTileState extends State<WorldTile> {
                                 color: Colors.white,
                               ),
                             ),
+
                             const SizedBox(height: 6),
 
-                            /// PROGRESS BAR BASED ON STARS
+                            /// Progress Bar
                             ClipRRect(
                               borderRadius:
                                   BorderRadius.circular(10),

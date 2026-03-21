@@ -2,31 +2,70 @@ import '../logic/sudoku_generator.dart';
 import '../logic/sudoku_solver.dart';
 import '../models/sudoku_board.dart';
 
+/// ============================================================================
+/// GameService
+/// ----------------------------------------------------------------------------
+/// Responsible for creating a new Sudoku game instance.
+///
+/// Responsibilities:
+/// - Generate puzzle using SudokuGenerator
+/// - Solve puzzle to create solution reference
+/// - Identify fixed (immutable) cells
+/// - Return a fully initialized SudokuBoard
+///
+/// Notes:
+/// - Ensures deep copies to prevent unintended mutation
+/// - Handles solver failure safely
+/// - Easily extendable for difficulty levels
+/// ============================================================================
+
 class GameService {
 
-  SudokuBoard newGame() {
+  /// Default empty cells (difficulty control)
+  /// Higher value = harder puzzle
+  static const int _defaultEmptyCells = 45;
 
-    SudokuGenerator generator = SudokuGenerator();
+  /// ==========================================================================
+  /// CREATE NEW GAME
+  /// ==========================================================================
+  /// Returns a fully initialized SudokuBoard
+  ///
+  /// Steps:
+  /// 1. Generate puzzle
+  /// 2. Clone puzzle → solution board
+  /// 3. Solve solution
+  /// 4. Identify fixed cells
+  /// ==========================================================================
+  SudokuBoard newGame({int emptyCells = _defaultEmptyCells}) {
 
-    List<List<int>> puzzle = generator.generatePuzzle(45);
+    final SudokuGenerator generator = SudokuGenerator();
 
-    // Copy puzzle to create solution board
-    List<List<int>> solution =
+    /// Step 1: Generate puzzle
+    final List<List<int>> puzzle = generator.generatePuzzle(emptyCells);
+
+    /// Step 2: Deep copy for solution
+    final List<List<int>> solution =
         puzzle.map((row) => List<int>.from(row)).toList();
 
-    // Solve puzzle
-    SudokuSolver.solve(solution);
+    /// Step 3: Solve puzzle (critical step)
+    final bool solved = SudokuSolver.solve(solution);
 
-    // Fixed cells
-    List<List<bool>> fixed =
-        puzzle.map((row) => row.map((n) => n != 0).toList()).toList();
+    if (!solved) {
+      /// 🚨 Production safety: generator/solver mismatch
+      throw Exception("Failed to solve generated Sudoku puzzle");
+    }
 
+    /// Step 4: Identify fixed cells (immutable cells)
+    final List<List<bool>> fixed = puzzle
+        .map((row) => row.map((cell) => cell != 0).toList())
+        .toList();
+
+    /// Step 5: Return board (deep copies to avoid mutation bugs)
     return SudokuBoard(
       board: puzzle.map((row) => List<int>.from(row)).toList(),
-      puzzle: puzzle,
+      puzzle: puzzle.map((row) => List<int>.from(row)).toList(),
       solution: solution,
       fixed: fixed,
     );
   }
-
 }

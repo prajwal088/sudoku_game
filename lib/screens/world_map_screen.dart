@@ -4,6 +4,21 @@ import '../widgets/world_tile.dart';
 import '../services/progress_service.dart';
 import 'level_map_screen.dart';
 
+/// ============================================================================
+/// WorldMapScreen
+/// ----------------------------------------------------------------------------
+/// Displays all available worlds in a grid format.
+///
+/// Responsibilities:
+/// - Show locked/unlocked worlds
+/// - Display stars per world
+/// - Navigate to LevelMapScreen
+///
+/// Architecture:
+/// - ProgressService → source of truth for unlocks & stars
+/// - UI reacts to progress state
+/// ============================================================================
+
 class WorldMapScreen extends StatefulWidget {
   const WorldMapScreen({super.key});
 
@@ -12,42 +27,53 @@ class WorldMapScreen extends StatefulWidget {
 }
 
 class _WorldMapScreenState extends State<WorldMapScreen> {
-  // ================= CONFIGURATION =================
+  /// Total worlds in game (can be dynamic in future)
+  static const int totalWorlds = 10;
 
-  final int totalWorlds = 10;
-  final int levelsPerWorld = 25;
+  /// Progress service (single source of truth)
+  final ProgressService _progressService = ProgressService();
 
-  final ProgressService progressService = ProgressService();
-
+  /// Highest unlocked world (from storage)
   int highestUnlockedWorld = 1;
 
-  bool loading = true;
-  bool _isLoadingProgress = false;
-
+  /// Stars collected per world → {world: stars}
   Map<int, int> worldStars = {};
+
+  /// UI state flags
+  bool loading = true;
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    loadProgress();
+    _loadProgress();
   }
 
-  // ================= LOAD PROGRESS =================
-
-  Future<void> loadProgress() async {
-    if (_isLoadingProgress) return;
-
-    _isLoadingProgress = true;
+  /// ==========================================================================
+  /// LOAD PROGRESS (OPTIMIZED + SAFE)
+  /// ==========================================================================
+  Future<void> _loadProgress() async {
+    /// Prevent duplicate calls
+    if (_isLoading) return;
+    _isLoading = true;
 
     try {
+      /// Fetch highest unlocked world
       final unlockedWorld =
-          await progressService.getHighestUnlockedWorld();
+          await _progressService.getHighestUnlockedWorld();
 
+      /// Fetch stars in parallel (performance optimization)
+      final futures = List.generate(totalWorlds, (index) {
+        int world = index + 1;
+        return _progressService.getStarsForWorld(world);
+      });
+
+      final results = await Future.wait(futures);
+
+      /// Map results → {world: stars}
       Map<int, int> tempStars = {};
-
-      for (int world = 1; world <= totalWorlds; world++) {
-        tempStars[world] =
-            await progressService.getStarsForWorld(world);
+      for (int i = 0; i < results.length; i++) {
+        tempStars[i + 1] = results[i];
       }
 
       if (!mounted) return;
@@ -58,17 +84,44 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         loading = false;
       });
     } catch (e) {
-      // Optional: log error in production (Crashlytics etc.)
+      /// Log error for debugging (important for production)
+      debugPrint("WorldMapScreen Error: $e");
+
       if (!mounted) return;
 
       setState(() {
         loading = false;
       });
     } finally {
-      _isLoadingProgress = false;
+      _isLoading = false;
     }
   }
 
+  /// ==========================================================================
+  /// WORLD TAP HANDLER
+  /// ==========================================================================
+  Future<void> _onWorldTap(int worldNumber, bool isLocked) async {
+    if (isLocked) {
+      _showLockedMessage(context);
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LevelMapScreen(world: worldNumber),
+      ),
+    );
+
+    /// Refresh progress after returning
+    if (mounted) {
+      _loadProgress();
+    }
+  }
+
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -83,7 +136,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         centerTitle: true,
       ),
 
-      // ================= WORLD GRID =================
+      /// ================= WORLD GRID =================
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: GridView.builder(
@@ -98,41 +151,31 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
           itemBuilder: (context, index) {
             final int worldNumber = index + 1;
 
+            /// Determine lock state using progress
             final bool isLocked =
                 worldNumber > highestUnlockedWorld;
+
+            /// Stars earned in this world
+            final int stars =
+                isLocked ? 0 : (worldStars[worldNumber] ?? 0);
 
             return WorldTile(
               worldNumber: worldNumber,
               isLocked: isLocked,
 
-              /// ✅ Real stars
-              starsEarned:
-                  isLocked ? 0 : (worldStars[worldNumber] ?? 0),
+              /// Stars earned
+              starsEarned: stars,
 
-              /// ✅ Total stars = 25 * 3
-              totalLevels: levelsPerWorld * 3,
+              /// Total possible stars (derived from ProgressService)
+              totalStars:
+                  ProgressService.levelsPerWorld * 3,
 
-              color: _getWorldColor(worldNumber),
+              /// Dynamic color based on progress
+              color: _getWorldColor(worldNumber, isLocked, stars),
 
-              onTap: () async {
-                if (isLocked) {
-                  _showLockedMessage(context);
-                  return;
-                }
-
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        LevelMapScreen(world: worldNumber),
-                  ),
-                );
-
-                /// ✅ Safe refresh after return
-                if (mounted) {
-                  loadProgress();
-                }
-              },
+              /// Tap handler
+              onTap: () =>
+                  _onWorldTap(worldNumber, isLocked),
             );
           },
         ),
@@ -140,27 +183,30 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
     );
   }
 
-  // ================= WORLD COLOR =================
+  /// ==========================================================================
+  /// WORLD COLOR LOGIC
+  /// ==========================================================================
+  Color _getWorldColor(
+      int world, bool isLocked, int starsEarned) {
+    if (isLocked) {
+      return Colors.grey.shade300;
+    }
 
-  Color _getWorldColor(int world) {
-    const colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.red,
-      Colors.teal,
-      Colors.indigo,
-      Colors.brown,
-      Colors.pink,
-      Colors.cyan,
-    ];
+    final int maxStars =
+        ProgressService.levelsPerWorld * 3;
 
-    return colors[(world - 1) % colors.length];
+    /// Fully completed world
+    if (starsEarned >= maxStars) {
+      return Colors.green.shade400;
+    }
+
+    /// In-progress world
+    return Colors.orange.shade400;
   }
 
-  // ================= LOCK MESSAGE =================
-
+  /// ==========================================================================
+  /// LOCK MESSAGE
+  /// ==========================================================================
   void _showLockedMessage(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
