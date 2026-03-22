@@ -20,11 +20,15 @@ import '../models/level.dart';
 
 class LevelTile extends StatefulWidget {
   final Level level;
+  final bool isLocked;
+  final bool isCurrent;
   final VoidCallback onTap;
 
   const LevelTile({
     super.key,
     required this.level,
+    required this.isLocked,
+    required this.isCurrent,
     required this.onTap,
   });
 
@@ -86,6 +90,25 @@ class _LevelTileState extends State<LevelTile>
   }
 
   /// ==========================================================================
+  /// TILE COLOR LOGIC
+  /// ==========================================================================
+  Color getTileColor() {
+    if (widget.level.isLocked) {
+      return Colors.grey.shade300;
+    }
+
+    if (widget.level.isCompleted) {
+      return Colors.green.shade400;
+    }
+
+    if (widget.isCurrent) {
+      return Colors.blue.shade500;
+    }
+
+    return Colors.orange.shade400;
+  }
+
+  /// ==========================================================================
   /// STAR WIDGET
   /// ==========================================================================
   Widget buildStars(int stars) {
@@ -105,30 +128,11 @@ class _LevelTileState extends State<LevelTile>
     );
   }
 
-  /// ==========================================================================
-  /// TILE COLOR LOGIC
-  /// ==========================================================================
-  Color getTileColor() {
-    if (widget.level.isLocked) {
-      return Colors.grey.shade300;
-    }
-
-    if (widget.level.isCompleted) {
-      return Colors.green.shade400;
-    }
-
-    return Colors.blue.shade400;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final bool isCurrentLevel =
-        !widget.level.isLocked && !widget.level.isCompleted;
-
     return GestureDetector(
       /// Prevent tap if locked
       onTap: widget.level.isLocked ? null : widget.onTap,
-
       onTapDown: _handleTapDown,
       onTapUp: _handleTapUp,
       onTapCancel: _handleTapCancel,
@@ -138,44 +142,46 @@ class _LevelTileState extends State<LevelTile>
         builder: (context, child) {
           return Transform.scale(
             scale: _scaleAnimation.value,
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
               decoration: BoxDecoration(
                 color: getTileColor(),
                 borderRadius: BorderRadius.circular(12),
 
-                /// Glow for current level
-                boxShadow: isCurrentLevel
+                /// Glow effect for current level
+                boxShadow: widget.isCurrent && !widget.isLocked
                     ? [
                         BoxShadow(
-                          color: Colors.blue.withAlpha(153), // ✅ FIXED
-                          blurRadius: 10,
+                          color: Colors.blue.withValues(alpha: 0.6),
+                          blurRadius: 12,
                           spreadRadius: 1,
                         ),
                       ]
                     : [],
               ),
               child: Stack(
+                alignment: Alignment.center,
                 children: [
+
+                  /// ================= LEVEL NUMBER =================
+                  Center(
+                    child: Text(
+                      "${widget.level.levelNumber}",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
 
                   /// ================= LOCK ICON =================
                   if (widget.level.isLocked)
-                    const Center(
+                    const Positioned(
+                      bottom: 12, // 👈 below number
                       child: Icon(
                         Icons.lock,
                         color: Colors.black54,
-                      ),
-                    ),
-
-                  /// ================= LEVEL NUMBER =================
-                  if (!widget.level.isLocked)
-                    Center(
-                      child: Text(
-                        "${widget.level.levelNumber}",
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
                       ),
                     ),
 
