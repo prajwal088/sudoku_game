@@ -14,6 +14,18 @@ import '../logic/sudoku_validator.dart';
 
 import 'win_screen.dart';
 
+/// ============================================================================
+/// GameScreen
+/// ----------------------------------------------------------------------------
+/// Core gameplay screen.
+/// Handles:
+/// - Sudoku board rendering
+/// - User input
+/// - Timer management
+/// - Hint & undo system
+/// - Win detection & navigation
+/// ============================================================================
+
 class GameScreen extends StatefulWidget {
   final int levelNumber;
 
@@ -35,19 +47,22 @@ class _GameScreenState extends State<GameScreen>
   late SudokuBoard board;
   late Level level;
 
+  /// Selected cell
   int selectedRow = -1;
   int selectedCol = -1;
 
+  /// Undo stack
   List<Map<String, int>> history = [];
 
+  /// Timer
   Timer? timer;
-
   DateTime? startTime;
   Duration elapsed = Duration.zero;
   bool isRunning = false;
 
+  /// Background timer handling
   DateTime? pausedAt;
-  static const int maxBackgroundMinutes = 15;
+  static const int maxBackgroundSeconds = 900;
 
   bool isLoading = true;
 
@@ -65,23 +80,35 @@ class _GameScreenState extends State<GameScreen>
     super.dispose();
   }
 
+  /// ==========================================================================
+  /// LOAD LEVEL (SAFE)
+  /// ==========================================================================
   Future<void> loadLevel() async {
-    level = await levelService.getLevel(widget.levelNumber);
+    try{
+      level = await levelService.getLevel(widget.levelNumber);
 
-    board = SudokuBoard.fromPuzzle(
-      level.puzzle,
-      level.solution,
-    );
+      board = SudokuBoard.fromPuzzle(
+        level.puzzle,
+        level.solution,
+      );
 
-    startTimer();
+      startTimer();
 
-    setState(() {
-      isLoading = false;
-    });
+      setState(() {
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("GameScreen Load Error: $e");
+
+      if (!mounted) return;
+
+      Navigator.pop(context);
+    }
   }
 
-  // ================= TIMER =================
-
+  /// ==========================================================================
+  /// TIMER MANAGEMENT
+  /// ==========================================================================
   void startTimer() {
     startTime = DateTime.now();
     elapsed = Duration.zero;
@@ -115,36 +142,51 @@ class _GameScreenState extends State<GameScreen>
     return elapsed + DateTime.now().difference(startTime!);
   }
 
-  // ================= LIFECYCLE =================
-
+  /// ==========================================================================
+  /// APP LIFECYCLE HANDLING
+  /// ==========================================================================
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+      // Triggered whenever app changes state (foreground ↔ background)
+
     if (state == AppLifecycleState.paused) {
-      pauseTimer();
+        // App moved to background (user minimized or switched apps)
+
+      pauseTimer(); // Stop counting game time
+      
+      // Record the exact time when app was paused
       pausedAt = DateTime.now();
-    } 
-    else if (state == AppLifecycleState.resumed) {
-      if (pausedAt != null) {
-        final difference = DateTime.now().difference(pausedAt!);
 
-        if (difference.inMinutes >= maxBackgroundMinutes) {
-          handleSessionExpired();
-          return;
+    } else if (state == AppLifecycleState.resumed) {
+        // App returned to foreground
+
+        if (pausedAt != null) {
+          // Calculate how long the app stayed in background
+          final difference = DateTime.now().difference(pausedAt!);
+
+          // If user was away longer than allowed limit
+          if (difference.inSeconds >= maxBackgroundSeconds) {
+            handleSessionExpired(); // Expire the session
+            return; // Stop further execution (do NOT resume timer)
+          }
         }
-      }
 
-      resumeTimer();
-    }
+        // If within allowed time → resume game normally
+        resumeTimer();
+      }
   }
 
   void handleSessionExpired() {
+    // Ensure widget is still in the widget tree
     if (!mounted) return;
 
+    // Stop any active periodic timer (if you have one)
     timer?.cancel();
 
+    // Show a blocking dialog (user MUST respond)
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false,  // Prevent closing by tapping outside
       builder: (_) => AlertDialog(
         title: const Text("Session Expired"),
         content: const Text(
@@ -153,8 +195,8 @@ class _GameScreenState extends State<GameScreen>
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              restartLevel();
+              Navigator.pop(context); // Close dialog
+              restartLevel(); // Restart the game level
             },
             child: const Text("OK"),
           ),
@@ -165,21 +207,29 @@ class _GameScreenState extends State<GameScreen>
 
   void restartLevel() {
     setState(() {
+      // Clear move history (undo/redo stack)
       history.clear();
+
+      // Reset selected cell
       selectedRow = -1;
       selectedCol = -1;
     });
 
+    // Recreate the Sudoku board from original puzzle
     board = SudokuBoard.fromPuzzle(
       level.puzzle,
       level.solution,
     );
 
+    // Restart the timer from zero
     startTimer();
   }
 
-  // ================= GAME LOGIC =================
-
+  /// ==========================================================================
+  /// GAME LOGIC
+  /// ==========================================================================
+  
+  /// Updates the currently selected cell in the UI
   void selectCell(int row, int col) {
     setState(() {
       selectedRow = row;
@@ -187,59 +237,84 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
+  /// Handles user input into the selected cell
   void inputNumber(int number) {
+    // Ensure a cell is selected
     if (selectedRow == -1 || selectedCol == -1) return;
 
+    // Prevent editing fixed (initial puzzle) cells
     if (!board.fixed[selectedRow][selectedCol]) {
+
+      // Prevent adding the same number again
+      if (board.board[selectedRow][selectedCol] == number) return;
+
+      // Save current state for undo functionality
       history.add({
         "row": selectedRow,
         "col": selectedCol,
         "value": board.board[selectedRow][selectedCol]
       });
 
+      
       setState(() {
+        // Update the board with new value
         board.setNumber(selectedRow, selectedCol, number);
       });
 
+      // Check if the game is completed after input
       checkWin();
     }
   }
 
+  /// Clears the selected cell (if editable)
   void eraseNumber() {
+    // 1. Ensure a cell is selected
     if (selectedRow == -1 || selectedCol == -1) return;
 
+    // 2. Prevent editing fixed cells
     if (!board.fixed[selectedRow][selectedCol]) {
+
+      // If the cell is already empty, do nothing
+      if (board.board[selectedRow][selectedCol] == 0) return;
+
+      // 3. Save current value for undo
       history.add({
         "row": selectedRow,
         "col": selectedCol,
         "value": board.board[selectedRow][selectedCol]
       });
 
+      // 4. Clear the cell
       setState(() {
         board.clearCell(selectedRow, selectedCol);
       });
     }
   }
 
+  /// Reverts the last move made by the player
   void undoMove() {
     if (history.isEmpty) return;
 
     var last = history.removeLast();
 
     setState(() {
+      // Restore previous value
       board.board[last["row"]!][last["col"]!] = last["value"]!;
     });
   }
   
 Set<String> hintedCells = {};
 
+/// Provides a hint by filling one correct cell
 void giveHint() {
 
   List<Map<String, int>> candidates = [];
 
+  // Iterate over entire board
   for (int r = 0; r < 9; r++) {
     for (int c = 0; c < 9; c++) {
-
+      
+      // Skip fixed cells
       if (board.fixed[r][c]) continue;
 
       String key = "$r-$c";
@@ -257,8 +332,10 @@ void giveHint() {
     }
   }
 
+  // No valid hint available
   if (candidates.isEmpty) return;
-
+  
+  // Randomize selection
   candidates.shuffle();
   var pick = candidates.first;
 
@@ -269,6 +346,7 @@ void giveHint() {
   int currentValue = board.board[r][c];
   int correctValue = board.solution[r][c];
 
+  // Save for undo
   history.add({
     "row": r,
     "col": c,
@@ -276,33 +354,41 @@ void giveHint() {
   });
 
   setState(() {
+    // Apply correct value
     board.board[r][c] = correctValue;
+    // Update selection
     selectedRow = r;
     selectedCol = c;
 
-    // ✅ Mark as hinted
+    // ✅ Mark as hinted to avoid reuse
     hintedCells.add(key);
   });
 
   checkWin();
 }
 
+  /// Checks if the board is fully and correctly solved
   void checkWin() {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
 
+    // Stop timer
     timer?.cancel();
 
+    // Calculate performance rating
     int stars = calculateStars();
 
+    // Persist progress
     progressService.saveLevelProgress(
       levelNumber: widget.levelNumber,
       stars: stars,
       time: getCurrentTime().inSeconds,
     );
 
+    // Navigate to win screen
     showWinScreen(stars);
   }
 
+  /// Calculates star rating based on completion time
   int calculateStars() {
     int target = level.targetTime;
     int currentSeconds = getCurrentTime().inSeconds;
@@ -311,7 +397,8 @@ void giveHint() {
     if (currentSeconds <= target * 1.5) return 2;
     return 1;
   }
-
+  
+  /// Navigates to the win screen and replaces current level
   void showWinScreen(int stars) {
     Navigator.pushReplacement(
       context,
@@ -325,6 +412,7 @@ void giveHint() {
     );
   }
 
+  /// Formats elapsed time into MM:SS format
   String formatTime() {
     final duration = getCurrentTime();
 
@@ -338,21 +426,32 @@ void giveHint() {
 
   @override
   Widget build(BuildContext context) {
+    /// STEP 1: Handle loading state
+    /// If data (e.g., Sudoku board) is still loading,
+    /// show a centered progress indicator.
     if (isLoading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator()), // Loading spinner
       );
     }
 
+    /// STEP 2: Main UI Scaffold
+    /// Scaffold provides the basic visual layout structure
+    /// like AppBar, body, etc.
     return Scaffold(
       appBar: AppBar(
+        /// Display current level dynamically
         title: Text("Level ${widget.levelNumber}"),
       ),
+
+      /// Main Screen content
       body: Column(
         children: [
+          /// Spacer at top
           const SizedBox(height: 12),
 
-          /// TIMER
+          /// STEP 3: Timer Display
+          /// Shows formatted elapsed time (e.g., 00:45)
           Text(
             formatTime(),
             style: const TextStyle(
@@ -363,14 +462,21 @@ void giveHint() {
 
           const SizedBox(height: 10),
 
-          /// SUDOKU GRID
+          /// STEP 4: Sudoku Grid
+          /// Expanded makes grid take remaining vertical space
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(12),
+
+              /// Custom widget for rendering Sudoku board
               child: SudokuGrid(
-                board: board,
+                board: board, // 2D array representing Sudoku values
+
+                /// Currently selected cell position
                 selectedRow: selectedRow,
                 selectedCol: selectedCol,
+
+                /// Callback triggered when user taps a cell
                 onCellTap: selectCell,
               ),
             ),
@@ -378,17 +484,26 @@ void giveHint() {
 
           const SizedBox(height: 10),
 
-          /// NUMBER PAD
+          /// STEP 5: Number Input Pad
+          /// Provides buttons for entering numbers and actions
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: NumberPad(
+              /// Called when user selects a number (1–9)
               onNumberSelected: inputNumber,
+
+              /// Undo last move
               onUndo: undoMove,
+
+              /// Provide hint to user
               onHint: giveHint,
+
+              /// Erase selected cell value
               onErase: eraseNumber,
             ),
           ),
 
+          /// Bottom spacing
           const SizedBox(height: 20),
         ],
       ),
