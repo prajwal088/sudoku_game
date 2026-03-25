@@ -426,21 +426,32 @@ void giveHint() {
 
   @override
   Widget build(BuildContext context) {
+    /// STEP 1: Handle loading state
+    /// If data (e.g., Sudoku board) is still loading,
+    /// show a centered progress indicator.
     if (isLoading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator()), // Loading spinner
       );
     }
 
+    /// STEP 2: Main UI Scaffold
+    /// Scaffold provides the basic visual layout structure
+    /// like AppBar, body, etc.
     return Scaffold(
       appBar: AppBar(
+        /// Display current level dynamically
         title: Text("Level ${widget.levelNumber}"),
       ),
+
+      /// Main Screen content
       body: Column(
         children: [
+          /// Spacer at top
           const SizedBox(height: 12),
 
-          /// TIMER
+          /// STEP 3: Timer Display
+          /// Shows formatted elapsed time (e.g., 00:45)
           Text(
             formatTime(),
             style: const TextStyle(
@@ -451,14 +462,21 @@ void giveHint() {
 
           const SizedBox(height: 10),
 
-          /// SUDOKU GRID
+          /// STEP 4: Sudoku Grid
+          /// Expanded makes grid take remaining vertical space
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(12),
+
+              /// Custom widget for rendering Sudoku board
               child: SudokuGrid(
-                board: board,
+                board: board, // 2D array representing Sudoku values
+
+                /// Currently selected cell position
                 selectedRow: selectedRow,
                 selectedCol: selectedCol,
+
+                /// Callback triggered when user taps a cell
                 onCellTap: selectCell,
               ),
             ),
@@ -466,17 +484,26 @@ void giveHint() {
 
           const SizedBox(height: 10),
 
-          /// NUMBER PAD
+          /// STEP 5: Number Input Pad
+          /// Provides buttons for entering numbers and actions
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: NumberPad(
+              /// Called when user selects a number (1–9)
               onNumberSelected: inputNumber,
+
+              /// Undo last move
               onUndo: undoMove,
+
+              /// Provide hint to user
               onHint: giveHint,
+
+              /// Erase selected cell value
               onErase: eraseNumber,
             ),
           ),
 
+          /// Bottom spacing
           const SizedBox(height: 20),
         ],
       ),
