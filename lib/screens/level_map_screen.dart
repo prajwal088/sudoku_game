@@ -22,6 +22,18 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
 
   final ScrollController _scrollController = ScrollController();
 
+  void scrollToLastUnlocked() {
+  int index = levels.lastIndexWhere((l) => !l.isLocked);
+
+  final row = index ~/ 5;
+
+  _scrollController.animateTo(
+    row * 80.0, // adjust based on tile height + spacing
+    duration: const Duration(milliseconds: 500),
+    curve: Curves.easeOut,
+  );
+}
+
   @override
 void dispose() {
   _scrollController.dispose();
@@ -31,47 +43,70 @@ void dispose() {
   @override
   void initState() {
     super.initState();
-    loadLevels();
+    _fetchLevels();
   }
 
-  Future<void> loadLevels() async {
+  bool _isRefreshing = false;
 
-    List<Level> loadedLevels =
-        await _levelService.getVisibleLevels();
+  Future<void> _fetchLevels() async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
 
-         if (!mounted) return;
+      try{
+        final loadedLevels =
+            await _levelService.getVisibleLevels();
 
-    setState(() {
-      levels = loadedLevels;
-      loading = false;
-    });
+          if (!mounted) {
+          _isRefreshing = false;
+          return;
+        }
+
+        setState(() {
+          levels = loadedLevels;
+          loading = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          scrollToLastUnlocked();
+        });
+      } catch (e) {
+        if (!mounted) {
+          _isRefreshing = false;
+          return;
+        }
+
+        setState(() => loading = false);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to load levels")),
+        );
+      }
+      
+        _isRefreshing = false;
   }
 
-  void openLevel(Level level) {
+  /// Handles level tap
+  Future<void> _openLevel(Level level) async {
 
     if (level.isLocked) {
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Complete previous level to unlock"),
+        SnackBar(
+          content: Text("Finish Level ${level.levelNumber - 1} to unlock"),
         ),
       );
-
       return;
     }
 
-    Navigator.push(
+    await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => GameScreen(
-          levelNumber: level.levelNumber,
-        ),
-      ),
-    ).then((_) {
-      loadLevels(); // refresh map after gameplay
-    });
+       MaterialPageRoute(
+         builder: (_) => GameScreen(levelNumber: level.levelNumber),
+       ),
+     );
+
+     _fetchLevels();
   }
 
+  /*
   /// fallback stars builder (used if LevelTile doesn't render stars)
   Widget buildStars(int stars) {
 
@@ -93,6 +128,7 @@ void dispose() {
       children: starWidgets,
     );
   }
+  */
 
   @override
   Widget build(BuildContext context) {
@@ -138,7 +174,7 @@ void dispose() {
           return LevelTile(
 
             level: level,
-            onTap: () => openLevel(level),
+            onTap: () => _openLevel(level),
 
           );
           },
