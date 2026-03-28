@@ -214,19 +214,6 @@ class ProgressService {
     return totalStars;
   }
 
-  /// Manually unlock next world (optional use case)
-  Future<void> unlockNextWorld(int world) async {
-    var progress = await loadProgress();
-
-    int highestWorld = progress["highestUnlockedWorld"];
-
-    if (highestWorld <= world) {
-      progress["highestUnlockedWorld"] = world + 1;
-    }
-
-    await saveProgress(progress);
-  }
-
   /// ==========================================================================
   /// LEVEL HELPERS
   /// ==========================================================================
