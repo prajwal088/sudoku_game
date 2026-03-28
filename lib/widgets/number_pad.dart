@@ -41,7 +41,6 @@ class NumberPad extends StatelessWidget {
   /// NUMBER BUTTON
   /// ==========================================================================
   Widget _buildNumberButton(BuildContext context, int number) {
-    final theme = Theme.of(context);
 
     return Expanded(
       child: Padding(
@@ -50,8 +49,7 @@ class NumberPad extends StatelessWidget {
           onPressed: () => onNumberSelected(number),
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 16),
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
+            backgroundColor: Colors.blue.shade500,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),

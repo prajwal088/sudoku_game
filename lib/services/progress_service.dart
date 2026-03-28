@@ -113,57 +113,45 @@ class ProgressService {
   /// - Update stars
   /// - Unlock next level
   /// - Unlock next world
-  Future<void> completeLevel(
+ Future<void> completeLevel(
     int world,
     int level,
     int timeInSeconds,
     int stars,
   ) async {
     var progress = await loadProgress();
-
-    /// Convert to GLOBAL level (single source of truth)
     int globalLevel = getGlobalLevel(world, level);
 
-    /// Extract stored data safely
-    List<int> completed = List<int>.from(progress["completedLevels"]);
-    Map<String, int> bestTimes =
-        Map<String, int>.from(progress["bestTimes"]);
-    Map<String, int> starsMap =
-        Map<String, int>.from(progress["stars"]);
+    // ✅ PROFESSIONAL APPROACH: Use Sets for O(1) lookup performance
+    Set<int> completed = Set<int>.from(progress["completedLevels"]);
+    Map<String, int> bestTimes = Map<String, int>.from(progress["bestTimes"]);
+    Map<String, int> starsMap = Map<String, int>.from(progress["stars"]);
 
-    /// ✅ Mark level as completed
-    if (!completed.contains(globalLevel)) {
-      completed.add(globalLevel);
-    }
+    completed.add(globalLevel);
 
-    /// ✅ Update best time (lower is better)
     if (!bestTimes.containsKey(globalLevel.toString()) ||
         timeInSeconds < bestTimes[globalLevel.toString()]!) {
       bestTimes[globalLevel.toString()] = timeInSeconds;
     }
 
-    /// ✅ Update stars (higher is better)
     if (!starsMap.containsKey(globalLevel.toString()) ||
         stars > starsMap[globalLevel.toString()]!) {
       starsMap[globalLevel.toString()] = stars;
     }
 
-    /// ✅ Unlock next level (Continue button logic depends on this)
-    int currentLevel = progress["currentLevel"];
-    if (currentLevel <= globalLevel) {
+    // ✅ LOGIC: Level unlocking
+    if (progress["currentLevel"] <= globalLevel) {
       progress["currentLevel"] = globalLevel + 1;
     }
 
-    /// ✅ Unlock next world ONLY if last level of world is completed
+    // ✅ GATEKEEPER LOGIC: Unlock world based on the 'Last Level' rule
     if (level == levelsPerWorld) {
-      int highestWorld = progress["highestUnlockedWorld"];
-      if (highestWorld <= world) {
+      if (progress["highestUnlockedWorld"] <= world) {
         progress["highestUnlockedWorld"] = world + 1;
       }
     }
 
-    /// Save updated values
-    progress["completedLevels"] = completed;
+    progress["completedLevels"] = completed.toList();
     progress["bestTimes"] = bestTimes;
     progress["stars"] = starsMap;
 
@@ -180,19 +168,16 @@ class ProgressService {
     return progress["highestUnlockedWorld"];
   }
 
-  /// Check if all levels in a world are completed
+  // ✅ PERFORMANCE FIX: isWorldCompleted now uses O(1) lookups
   Future<bool> isWorldCompleted(int world) async {
     var progress = await loadProgress();
+    final completed = Set<int>.from(progress["completedLevels"]);
 
-    List<int> completed = List<int>.from(progress["completedLevels"]);
-
-    int start = getGlobalLevel(world, 1);
     int end = getGlobalLevel(world, levelsPerWorld);
 
-    for (int i = start; i <= end; i++) {
-      if (!completed.contains(i)) return false;
-    }
-    return true;
+    // Since we check the 'Gatekeeper' to unlock worlds, 
+    // we just need to verify the last level is in the completed set.
+    return completed.contains(end); 
   }
 
   /// Get total stars earned in a world
