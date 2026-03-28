@@ -48,8 +48,6 @@ class LevelService {
 
     /// ================= WORLD / LOCAL =================
     final int world = _progressService.getWorldFromGlobal(globalLevel);
-    final int localLevel =
-        _progressService.getLevelInWorld(globalLevel);
 
     /// ================= PUZZLE =================
     final Map<String, dynamic> puzzleData =

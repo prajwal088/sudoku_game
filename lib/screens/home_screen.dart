@@ -84,6 +84,8 @@ class _HomeScreenState extends State<HomeScreen>
     /// Step 1: Get next unlocked GLOBAL level
     int globalLevel = await progressService.getNextUnlockedLevel();
 
+    if (!mounted) return;
+
     /// Safety guard (prevents invalid navigation)
     if (globalLevel < 1) return;
 
@@ -93,9 +95,11 @@ class _HomeScreenState extends State<HomeScreen>
     int world = data["world"]!;
     int level = data["level"]!;
 
+/*
     /// Debug log (remove in release if needed)
     // ignore: avoid_print
     print("Continue → Global: $globalLevel | World: $world | Level: $level");
+*/
 
     /// Step 3: Navigate to GameScreen
     await Navigator.pushNamed(
@@ -117,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// OPEN WORLD MAP
   /// ==========================================================================
   Future<void> _openLevelMap() async {
+    if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(

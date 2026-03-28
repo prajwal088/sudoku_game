@@ -6,7 +6,13 @@ class StatisticsCard extends StatelessWidget {
   final double progress;
   final IconData icon;
 
-  StatisticsCard({required this.title, required this.value, required this.progress, required this.icon});
+const  StatisticsCard({
+  super.key,
+  required this.title, 
+  required this.value, 
+  required this.progress, 
+  required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {

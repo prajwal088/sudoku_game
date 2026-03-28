@@ -3,16 +3,17 @@ import 'package:flutter/material.dart';
 class PaginationWidget extends StatefulWidget {
   final int totalPages;
   final int currentPage;
-  final Function(int) onPageChanged;
+  final ValueChanged<int> onPageChanged;
 
-  PaginationWidget({
+ const PaginationWidget({
+    super.key,
     required this.totalPages,
     required this.currentPage,
     required this.onPageChanged,
   });
 
   @override
-  _PaginationWidgetState createState() => _PaginationWidgetState();
+  State<PaginationWidget> createState() => _PaginationWidgetState();
 }
 
 class _PaginationWidgetState extends State<PaginationWidget> {

@@ -1,11 +1,9 @@
 class World {
     String name;
     List<Level> levels;
-    int currentLevelIndex;
+    int currentLevelIndex = 0;
 
-    World(this.name, this.levels) {
-        currentLevelIndex = 0;
-    }
+    World(this.name, this.levels);
 
     Level get currentLevel {
         return levels[currentLevelIndex];

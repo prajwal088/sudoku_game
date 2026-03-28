@@ -7,40 +7,52 @@ enum LevelTileState {
 }
 
 class EnhancedLevelTile extends StatelessWidget {
+  final int levelNumber;
   final LevelTileState state;
+  final int stars;
+  final VoidCallback onTap;
 
-  EnhancedLevelTile({required this.state});
+  const EnhancedLevelTile({
+    super.key,
+    required this.levelNumber,
+    required this.state,
+    this.stars = 0,
+    required this.onTap,
+  });
 
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    IconData icon;
-    String starDisplay = '';
-
+      Color _getBackgroundColor() {
     switch (state) {
-      case LevelTileState.locked:
-        color = Colors.grey;
-        icon = Icons.lock;
-        break;
-      case LevelTileState.inProgress:
-        color = Colors.blue;
-        icon = Icons.circle; // Example icon for in progress
-        break;
       case LevelTileState.completed:
-        color = Colors.green;
-        icon = Icons.star;
-        starDisplay = ' ★'; // Star display
-        break;
+        return Colors.green;
+      case LevelTileState.inProgress:
+        return Colors.orange;
+      case LevelTileState.locked:
+        return Colors.grey;
     }
+  }
 
-    return Container(
-      color: color,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          Icon(icon),
-          Text(starDisplay),
-        ],
+ @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: state != LevelTileState.locked ? onTap : null,
+      child: Card(
+        color: _getBackgroundColor(),
+        child: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(levelNumber.toString(), style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white)),
+                  if (state == LevelTileState.completed)
+                    Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(stars, (index) => Icon(Icons.star, color: Colors.yellow, size: 16))),
+                ],
+              ),
+            ),
+            if (state == LevelTileState.locked)
+              Center(child: Icon(Icons.lock, color: Colors.white, size: 32)),
+          ],
+        ),
       ),
     );
   }

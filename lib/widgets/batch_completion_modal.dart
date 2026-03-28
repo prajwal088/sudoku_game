@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 class BatchCompletionModal extends StatelessWidget {
+  const BatchCompletionModal({super.key});
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -24,6 +25,16 @@ class BatchCompletionModal extends StatelessWidget {
             // Placeholder for celebration animation
             Icon(Icons.star, size: 50, color: Colors.yellow),
             // Additional code for actual animation would go here
+
+            const SizedBox(height: 20),
+
+            /// ✅ Close button (important UX fix)
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Continue'),
+            ),
           ],
         ),
       ),
