@@ -239,11 +239,11 @@ class _GameScreenState extends State<GameScreen>
     _timer?.cancel();
     int stars = _calculateStars();
 
-    progressService.saveLevelProgress(
-      world: widget.world,
-      levelNumber: widget.levelNumber,
+    // FIX: Using the correct method name from our ProgressService
+    progressService.completeLevel(
+      globalLevel: widget.levelNumber, // This is our source of truth
+      timeInSeconds: _secondsElapsed,
       stars: stars,
-      time: _secondsElapsed,
     );
 
     _showWinScreen(stars);

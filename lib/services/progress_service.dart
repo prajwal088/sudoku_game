@@ -51,20 +51,10 @@ class ProgressService {
     Map<String, dynamic> progress = jsonDecode(data);
 
     /// 🔒 Type Safety Enforcement (Prevents runtime crashes)
-    progress["currentLevel"] = progress["currentLevel"] ?? 1;
-
-    progress["completedLevels"] =
-        List<int>.from(progress["completedLevels"] ?? []);
-
-    progress["bestTimes"] =
-        Map<String, int>.from(progress["bestTimes"] ?? {});
-
-    progress["stars"] =
-        Map<String, int>.from(progress["stars"] ?? {});
-
-    progress["highestUnlockedWorld"] =
-        progress["highestUnlockedWorld"] ?? 1;
-
+    // Ensure lists and maps are cast correctly to avoid type errors
+    progress["completedLevels"] = List<int>.from(progress["completedLevels"] ?? []);
+    progress["bestTimes"] = Map<String, int>.from(progress["bestTimes"] ?? {});
+    progress["stars"] = Map<String, int>.from(progress["stars"] ?? {});
     return progress;
   }
 
@@ -113,14 +103,12 @@ class ProgressService {
   /// - Update stars
   /// - Unlock next level
   /// - Unlock next world
- Future<void> completeLevel(
-    int world,
-    int level,
-    int timeInSeconds,
-    int stars,
-  ) async {
+  Future<void> completeLevel({
+    required int globalLevel,
+    required int timeInSeconds,
+    required int stars,
+  }) async {
     var progress = await loadProgress();
-    int globalLevel = getGlobalLevel(world, level);
 
     // ✅ PROFESSIONAL APPROACH: Use Sets for O(1) lookup performance
     Set<int> completed = Set<int>.from(progress["completedLevels"]);
@@ -129,26 +117,28 @@ class ProgressService {
 
     completed.add(globalLevel);
 
-    if (!bestTimes.containsKey(globalLevel.toString()) ||
-        timeInSeconds < bestTimes[globalLevel.toString()]!) {
-      bestTimes[globalLevel.toString()] = timeInSeconds;
+    // Update Best Time (Lower is better)
+    String key = globalLevel.toString();
+    if (!bestTimes.containsKey(key) || timeInSeconds < bestTimes[key]!) {
+      bestTimes[key] = timeInSeconds;
     }
 
-    if (!starsMap.containsKey(globalLevel.toString()) ||
-        stars > starsMap[globalLevel.toString()]!) {
-      starsMap[globalLevel.toString()] = stars;
+    // Update Stars (Higher is better)
+    if (!starsMap.containsKey(key) || stars > starsMap[key]!) {
+      starsMap[key] = stars;
     }
 
-    // ✅ LOGIC: Level unlocking
-    if (progress["currentLevel"] <= globalLevel) {
+    // Unlock next level logic
+    if (progress["currentLevel"] == globalLevel) {
       progress["currentLevel"] = globalLevel + 1;
     }
 
-    // ✅ GATEKEEPER LOGIC: Unlock world based on the 'Last Level' rule
-    if (level == levelsPerWorld) {
-      if (progress["highestUnlockedWorld"] <= world) {
-        progress["highestUnlockedWorld"] = world + 1;
-      }
+    // Unlock next world gatekeeper
+    int worldOfCompletedLevel = getWorldFromGlobal(globalLevel);
+    int localLevel = getLevelInWorld(globalLevel);
+    
+    if (localLevel == levelsPerWorld && progress["highestUnlockedWorld"] <= worldOfCompletedLevel) {
+      progress["highestUnlockedWorld"] = worldOfCompletedLevel + 1;
     }
 
     progress["completedLevels"] = completed.toList();
@@ -164,31 +154,21 @@ class ProgressService {
 
   /// Get highest unlocked world
   Future<int> getHighestUnlockedWorld() async {
-    var progress = await loadProgress();
-    return progress["highestUnlockedWorld"];
+    final progress = await loadProgress();
+    return progress["highestUnlockedWorld"] ?? 1;
   }
 
-  // ✅ PERFORMANCE FIX: isWorldCompleted now uses O(1) lookups
-  Future<bool> isWorldCompleted(int world) async {
-    var progress = await loadProgress();
-    final completed = Set<int>.from(progress["completedLevels"]);
-
-    int end = getGlobalLevel(world, levelsPerWorld);
-
-    // Since we check the 'Gatekeeper' to unlock worlds, 
-    // we just need to verify the last level is in the completed set.
-    return completed.contains(end); 
+  Future<int> getNextUnlockedLevel() async {
+    final progress = await loadProgress();
+    return progress["currentLevel"] ?? 1;
   }
 
-  /// Get total stars earned in a world
+  /// Get total stars earned in a world (Add this to ProgressService)
   Future<int> getStarsForWorld(int world) async {
-    var progress = await loadProgress();
-
-    Map<String, int> starsMap =
-        Map<String, int>.from(progress["stars"]);
+    final progress = await loadProgress();
+    final Map<String, int> starsMap = Map<String, int>.from(progress["stars"] ?? {});
 
     int totalStars = 0;
-
     int start = getGlobalLevel(world, 1);
     int end = getGlobalLevel(world, levelsPerWorld);
 
@@ -199,77 +179,8 @@ class ProgressService {
     return totalStars;
   }
 
-  /// ==========================================================================
-  /// LEVEL HELPERS
-  /// ==========================================================================
-
-  /// Wrapper for saving level completion
-  Future<void> saveLevelProgress({
-    required int world,
-    required int levelNumber,
-    required int stars,
-    required int time,
-  }) async {
-    await completeLevel(world, levelNumber, time, stars);
-  }
-
-  /// Get next playable GLOBAL level (used by Continue button)
-  Future<int> getNextUnlockedLevel() async {
-    var progress = await loadProgress();
-    return progress["currentLevel"];
-  }
-
-  /// Check if a GLOBAL level is unlocked
-  Future<bool> isLevelUnlocked(int globalLevel) async {
-    int currentLevel = await getNextUnlockedLevel();
-    return globalLevel <= currentLevel;
-  }
-
-  /// Get stars for a GLOBAL level
-  Future<int> getStars(int globalLevel) async {
-    var progress = await loadProgress();
-
-    Map<String, int> starsMap =
-        Map<String, int>.from(progress["stars"]);
-
-    return starsMap[globalLevel.toString()] ?? 0;
-  }
-
-  /// Get best time for a GLOBAL level
-  Future<int?> getBestTime(int globalLevel) async {
-    var progress = await loadProgress();
-
-    Map<String, int> bestTimes =
-        Map<String, int>.from(progress["bestTimes"]);
-
-    return bestTimes[globalLevel.toString()];
-  }
-
-  /// Reset all progress (use during testing/debugging)
   Future<void> resetProgress() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_progressKey);
-  }
-
-  /// ==========================================================================
-  /// UI HELPERS
-  /// ==========================================================================
-
-  /// Get all visible levels (ensures full world visibility)
-  Future<List<int>> getVisibleLevels() async {
-    int currentLevel = await getNextUnlockedLevel();
-
-    /// Ensures entire world is visible in UI
-    int maxVisible =
-        ((currentLevel - 1) ~/ levelsPerWorld + 1) *
-            levelsPerWorld;
-
-    List<int> levels = [];
-
-    for (int i = 1; i <= maxVisible; i++) {
-      levels.add(i);
-    }
-
-    return levels;
   }
 }

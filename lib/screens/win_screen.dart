@@ -69,10 +69,10 @@ class _WinScreenState extends State<WinScreen>
   /// ==========================================================================
   Future<void> _initialize() async {
     /// Check if world is completed (accurate check)
-    final isCompleted =
-        await progressService.isWorldCompleted(widget.world);
+    bool isLastLevelOfWorld = 
+        progressService.getLevelInWorld(widget.levelNumber) == ProgressService.levelsPerWorld;
 
-    if (isCompleted) {
+    if (isLastLevelOfWorld) {
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _showWorldCompleteDialog(widget.world);
@@ -118,8 +118,8 @@ class _WinScreenState extends State<WinScreen>
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-
+              Navigator.pop(context); // Close dialog
+              // Navigate to the Level Map for the NEW world  
               Navigator.pushReplacementNamed(
                 context,
                 "/levels",
@@ -139,24 +139,18 @@ class _WinScreenState extends State<WinScreen>
   /// Converts GLOBAL level → correct world + level
   Map<String, int> _getNextLevelArgs() {
     final int globalNext = widget.levelNumber + 1;
-
-    final int world =
-        progressService.getWorldFromGlobal(globalNext);
-
-    final int level =
-        progressService.getLevelInWorld(globalNext);
-
     return {
-      "world": world,
-      "level": level,
+      "world": progressService.getWorldFromGlobal(globalNext),
+      "level": progressService.getLevelInWorld(globalNext),
+      "levelNumber": globalNext, // Always pass the global index too!
     };
   }
 
   Map<String, int> _getReplayArgs() {
     return {
       "world": widget.world,
-      "level":
-          progressService.getLevelInWorld(widget.levelNumber),
+      "level": progressService.getLevelInWorld(widget.levelNumber),
+      "levelNumber": widget.levelNumber,
     };
   }
 

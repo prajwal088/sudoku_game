@@ -49,12 +49,6 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     _loadData();
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
   /// ==========================================================================
   /// LOAD LEVELS + PROGRESS
   /// ==========================================================================
@@ -83,12 +77,11 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// LOCK LOGIC (GLOBAL SOURCE OF TRUTH)
   /// ==========================================================================
   /// Helper to determine the state for the EnhancedLevelTile
-    LevelTileState _getTileState(Level level, int index) {
-      int globalLevelIdx = _progressService.getGlobalLevel(widget.world, index + 1);
-      
-      if (globalLevelIdx > currentGlobalLevel) {
+  /// Determines tile state based on Global Level ID
+    LevelTileState _getTileState(Level level) {
+      if (level.levelNumber > currentGlobalLevel) {
         return LevelTileState.locked;
-      } else if (globalLevelIdx < currentGlobalLevel || level.isCompleted) {
+      } else if (level.levelNumber < currentGlobalLevel) {
         return LevelTileState.completed;
       } else {
         return LevelTileState.inProgress;
@@ -96,25 +89,17 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     }
 
   /// ==========================================================================
-  /// CURRENT LEVEL INDEX (ACCURATE)
-  /// ==========================================================================
-  int getCurrentLevelIndex() {
-    int localLevel =
-        _progressService.getLevelInWorld(currentGlobalLevel);
-
-    return (localLevel - 1).clamp(0, levels.length - 1);
-  }
-
-  /// ==========================================================================
   /// AUTO SCROLL TO CURRENT LEVEL
   /// ==========================================================================
   void _scrollToCurrentLevel() {
-    if (levels.isEmpty) return;
+    if (levels.isEmpty || !_scrollController.hasClients) return;
 
-    int index = getCurrentLevelIndex();
-    int row = index ~/ itemsPerRow;
+    // Find the current level within the current world list
+    int indexInList = levels.indexWhere((l) => l.levelNumber == currentGlobalLevel);
+    if (indexInList == -1) return; // Current level is in a different world
 
-    double offset = row * itemHeight;
+    int row = indexInList ~/ itemsPerRow;
+    double offset = (row * itemHeight).clamp(0, _scrollController.position.maxScrollExtent);
 
     /// Prevent overscroll
     if (_scrollController.hasClients) {
@@ -134,12 +119,10 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ==========================================================================
   /// NAVIGATION
   /// ==========================================================================
-  void _openLevel(Level level, int index) {
-    int globalLevelIdx = _progressService.getGlobalLevel(widget.world, index + 1);
-    
-    if (globalLevelIdx > currentGlobalLevel) {
+  void _openLevel(Level level) {
+    if (level.levelNumber > currentGlobalLevel) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Complete previous level to unlock")),
+        const SnackBar(content: Text("Complete previous levels first!")),
       );
       return;
     }
@@ -148,10 +131,11 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       context,
       "/game",
       arguments: {
-        "level": level.levelNumber, // LOCAL level
+        "levelNumber": level.levelNumber, // THE GLOBAL ID
         "world": widget.world,
+        "level": _progressService.getLevelInWorld(level.levelNumber), // THE LOCAL ID
       },
-    ).then((_) => _loadData());
+    ).then((_) => _loadData()); // Refresh when coming back
   }
 
   /// ==========================================================================
@@ -167,9 +151,13 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("🌍 World ${widget.world}"),
-        centerTitle: true,
-        elevation: 0,
+        title: Text("World ${widget.world}"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
+          )
+        ],
       ),
       body: GridView.builder(
         controller: _scrollController,
@@ -183,16 +171,21 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         ),
         itemBuilder: (context, index) {
           final level = levels[index];
-          final state = _getTileState(level, index);
-
           return EnhancedLevelTile(
-            levelNumber: level.levelNumber,
-            state: state,
+            // Show the LOCAL number (1-25) on the tile for the user
+            levelNumber: _progressService.getLevelInWorld(level.levelNumber),
+            state: _getTileState(level),
             stars: level.stars,
-            onTap: () => _openLevel(level, index),
+            onTap: () => _openLevel(level),
           );
         },
       ),
     );
+  }
+  
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 }
