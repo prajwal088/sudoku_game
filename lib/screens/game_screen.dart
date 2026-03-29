@@ -53,22 +53,21 @@ class _GameScreenState extends State<GameScreen>
   int selectedCol = -1;
 
   /// Undo stack
-  final List<Map<String, int>> history = [];
+  final List<Map<String, dynamic>> history = [];
 
-  /// Timer
-  Timer? timer;
-  DateTime? startTime;
-  Duration elapsed = Duration.zero;
-  bool isRunning = false;
-
-  /// Background handling
-  DateTime? pausedAt;
-  static const int maxBackgroundMinutes = 15;
-
+  // TODO: Update hint when creating builds
   /// Hint tracking
   final Set<String> hintedCells = {};
+  int hintsRemaining = 1000; // Production feature: limited hints
 
-  bool isLoading = true;
+  /// Timer State
+  Timer? _timer;
+  int _secondsElapsed = 0;
+  /// bool _isRunning = false;
+  bool _isLoading = true;
+
+  /// Lifecycle
+  DateTime? pausedAt;
 
   @override
   void initState() {
@@ -79,13 +78,23 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   void dispose() {
+    _stopTimer();
     WidgetsBinding.instance.removeObserver(this);
-    timer?.cancel();
     super.dispose();
   }
 
+  // Handle app background/foreground
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _stopTimer();
+    } else if (state == AppLifecycleState.resumed) {
+      _startTimer();
+    }
+  }
+
   /// ==========================================================================
-  /// LOAD LEVEL (SAFE)
+  /// LOAD LEVEL (CORE LOGIC)
   /// ==========================================================================
   Future<void> _loadLevel() async {
     try {
@@ -96,19 +105,13 @@ class _GameScreenState extends State<GameScreen>
         level.solution,
       );
 
-      _startTimer();
-
-      if (!mounted) return;
-
       setState(() {
-        isLoading = false;
+        _isLoading = false;
       });
+      _startTimer();
     } catch (e) {
       debugPrint("GameScreen Load Error: $e");
-
-      if (!mounted) return;
-
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     }
   }
 
@@ -116,198 +119,72 @@ class _GameScreenState extends State<GameScreen>
   /// TIMER MANAGEMENT
   /// ==========================================================================
   void _startTimer() {
-    startTime = DateTime.now();
-    elapsed = Duration.zero;
-    isRunning = true;
+    if (_timer?.isActive ?? false) return;  // Prevent multiple timers
 
-    timer?.cancel();
-
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || !isRunning) return;
-      setState(() {});
-    });
-  }
-
-  void _pauseTimer() {
-    if (!isRunning) return;
-
-    elapsed += DateTime.now().difference(startTime!);
-    isRunning = false;
-  }
-
-  void _resumeTimer() {
-    if (isRunning) return;
-
-    startTime = DateTime.now();
-    isRunning = true;
-  }
-
-  Duration _getCurrentTime() {
-    if (!isRunning) return elapsed;
-    return elapsed + DateTime.now().difference(startTime!);
-  }
-
-  /// ==========================================================================
-  /// APP LIFECYCLE HANDLING
-  /// ==========================================================================
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _pauseTimer();
-      pausedAt = DateTime.now();
-    } else if (state == AppLifecycleState.resumed) {
-      if (pausedAt != null) {
-        final diff = DateTime.now().difference(pausedAt!);
-
-        if (diff.inMinutes >= maxBackgroundMinutes) {
-          _handleSessionExpired();
-          return;
-        }
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _secondsElapsed++;
+        });
       }
-      _resumeTimer();
-    }
-  }
-
-  void _handleSessionExpired() {
-    if (!mounted) return;
-
-    timer?.cancel();
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text("Session Expired"),
-        content: const Text(
-          "You were away too long. Level will restart.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _restartLevel();
-            },
-            child: const Text("OK"),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _restartLevel() {
-    history.clear();
-    hintedCells.clear();
-
-    board = SudokuBoard.fromPuzzle(
-      level.puzzle,
-      level.solution,
-    );
-
-    _startTimer();
-
-    setState(() {});
-  }
-
-  /// ==========================================================================
-  /// GAME INPUT
-  /// ==========================================================================
-  void selectCell(int row, int col) {
-    setState(() {
-      selectedRow = row;
-      selectedCol = col;
     });
   }
 
-  void inputNumber(int number) {
-    if (!_isValidSelection()) return;
-
-    _saveHistory();
-
-    setState(() {
-      board.setNumber(selectedRow, selectedCol, number);
-    });
-
-    _checkWin();
+  void _stopTimer() {
+    _timer?.cancel();
   }
 
-  void eraseNumber() {
-    if (!_isValidSelection()) return;
-
-    _saveHistory();
-
-    setState(() {
-      board.clearCell(selectedRow, selectedCol);
-    });
-  }
-
-  void undoMove() {
-    if (history.isEmpty) return;
-
-    final last = history.removeLast();
-
-    setState(() {
-      board.setNumber(
-        last["row"]!,
-        last["col"]!,
-        last["value"]!,
-      );
-    });
-  }
-
-  bool _isValidSelection() {
-    return selectedRow != -1 &&
-        selectedCol != -1 &&
-        !board.fixed[selectedRow][selectedCol];
-  }
-
-  void _saveHistory() {
-    history.add({
-      "row": selectedRow,
-      "col": selectedCol,
-      "value": board.board[selectedRow][selectedCol],
-    });
-  }
-
-  /// ==========================================================================
-  /// HINT SYSTEM
-  /// ==========================================================================
+// ==========================================================================
+  // HINT LOGIC (IMPROVED)
+  // ==========================================================================
   void giveHint() {
-    List<Map<String, int>> candidates = [];
-
-    for (int r = 0; r < 9; r++) {
-      for (int c = 0; c < 9; c++) {
-        if (board.fixed[r][c]) continue;
-
-        String key = "$r-$c";
-        int current = board.board[r][c];
-        int correct = board.solution[r][c];
-
-        if (hintedCells.contains(key)) continue;
-
-        if (current == 0 || current != correct) {
-          candidates.add({"row": r, "col": c});
-        }
-      }
-    }
-
-    if (candidates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No hints available")),
-      );
+    if (hintsRemaining <= 0) {
+      _showToast("No hints remaining!");
       return;
     }
 
-    candidates.shuffle();
-    var pick = candidates.first;
+    int targetRow = -1;
+    int targetCol = -1;
 
-    int r = pick["row"]!;
-    int c = pick["col"]!;
+    // Strategy 1: If user has a cell selected and it's empty/wrong, hint that one.
+    if (_isValidSelection() && 
+        (board.board[selectedRow][selectedCol] == 0 || 
+         board.board[selectedRow][selectedCol] != board.solution[selectedRow][selectedCol])) {
+      targetRow = selectedRow;
+      targetCol = selectedCol;
+    } 
+    // Strategy 2: Otherwise, find the first empty/wrong cell.
+    else {
+      List<Map<String, int>> candidates = [];
+      for (int r = 0; r < 9; r++) {
+        for (int c = 0; c < 9; c++) {
+          if (board.fixed[r][c] || hintedCells.contains("$r-$c")) continue;
+          if (board.board[r][c] == 0 || board.board[r][c] != board.solution[r][c]) {
+            candidates.add({"r": r, "c": c});
+          }
+        }
+      }
 
-    _saveHistory();
+      if (candidates.isEmpty) {
+        _showToast("Board is already correct!");
+        return;
+      }
+      
+      candidates.shuffle();
+      targetRow = candidates.first["r"]!;
+      targetCol = candidates.first["c"]!;
+    }
 
+    _applyHint(targetRow, targetCol);
+  }
+
+  void _applyHint(int r, int c) {
+    _saveHistory(); // Allow undoing a hint if desired, or skip this to make hints permanent
+    
     setState(() {
       board.setNumber(r, c, board.solution[r][c]);
       hintedCells.add("$r-$c");
+      hintsRemaining--;
       selectedRow = r;
       selectedCol = c;
     });
@@ -315,116 +192,135 @@ class _GameScreenState extends State<GameScreen>
     _checkWin();
   }
 
-  /// ==========================================================================
-  /// WIN LOGIC
-  /// ==========================================================================
+  // ==========================================================================
+  // INPUT HANDLERS
+  // ==========================================================================
+
+  void inputNumber(int number) {
+    if (!_isValidSelection()) return;
+    
+    // Don't allow changing a hinted cell (Professional touch)
+    if (hintedCells.contains("$selectedRow-$selectedCol")) return;
+
+    _saveHistory();
+    setState(() => board.setNumber(selectedRow, selectedCol, number));
+    _checkWin();
+  }
+
+  void undoMove() {
+    if (history.isEmpty) return;
+    final last = history.removeLast();
+    setState(() {
+      board.setNumber(last["row"], last["col"], last["value"]);
+      // Optional: if hint was undone, remove from hintedCells
+    });
+  }
+
+  bool _isValidSelection() => 
+    selectedRow != -1 && selectedCol != -1 && !board.fixed[selectedRow][selectedCol];
+
+  void _saveHistory() {
+    history.add({
+      "row": selectedRow,
+      "col": selectedCol,
+      "value": board.board[selectedRow][selectedCol],
+    });
+    if (history.length > 20) history.removeAt(0); // Limit memory usage
+  }
+
+// ==========================================================================
+  // WIN CONDITION & NAVIGATION
+  // ==========================================================================
+
   void _checkWin() {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
+    if (!SudokuValidator.isValidSolution(board.board, board.solution)) return;
 
-    timer?.cancel();
-
+    _timer?.cancel();
     int stars = _calculateStars();
 
     progressService.saveLevelProgress(
       world: widget.world,
       levelNumber: widget.levelNumber,
       stars: stars,
-      time: _getCurrentTime().inSeconds,
+      time: _secondsElapsed,
     );
 
     _showWinScreen(stars);
   }
 
   int _calculateStars() {
-    int target = level.targetTime;
-    int current = _getCurrentTime().inSeconds;
-
-    if (current <= target) return 3;
-    if (current <= target * 1.5) return 2;
+    if (_secondsElapsed <= level.targetTime) return 3;
+    if (_secondsElapsed <= level.targetTime * 1.5) return 2;
     return 1;
   }
 
   void _showWinScreen(int stars) {
-    if (!mounted) return;
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => WinScreen(
           levelNumber: widget.levelNumber,
           stars: stars,
-          time: _formatTime(),
+          time: _formatTime(_secondsElapsed),
           world: widget.world,
         ),
       ),
     );
   }
 
-  String _formatTime() {
-    final duration = _getCurrentTime();
-
-    int minutes = duration.inMinutes;
-    int secs = duration.inSeconds % 60;
-
-    return "${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}";
+  String _formatTime(int totalSeconds) {
+    int minutes = totalSeconds ~/ 60;
+    int seconds = totalSeconds % 60;
+    return "${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
   }
 
-  /// ==========================================================================
-  /// UI
-  /// ==========================================================================
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 1)));
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
       appBar: AppBar(
         title: Text("Level ${widget.levelNumber}"),
+        actions: [
+          Center(child: Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Text("Hints: $hintsRemaining", style: const TextStyle(fontSize: 16)),
+          ))
+        ],
       ),
       body: Column(
         children: [
           const SizedBox(height: 12),
-
-          /// TIMER DISPLAY
-          Text(
-            _formatTime(),
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
+          Text(_formatTime(_secondsElapsed), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-
-          /// SUDOKU GRID
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(8.0),
               child: SudokuGrid(
                 board: board,
                 selectedRow: selectedRow,
                 selectedCol: selectedCol,
-                onCellTap: selectCell,
+                hintedCells: hintedCells, // Pass this to your widget to style them!
+                onCellTap: (r, c) => setState(() { selectedRow = r; selectedCol = c; }),
               ),
             ),
           ),
-
-          const SizedBox(height: 10),
-
-          /// NUMBER PAD
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: NumberPad(
-              onNumberSelected: inputNumber,
-              onUndo: undoMove,
-              onHint: giveHint,
-              onErase: eraseNumber,
-            ),
+          NumberPad(
+            onNumberSelected: inputNumber,
+            onUndo: undoMove,
+            onHint: giveHint,
+            onErase: () {
+               if (_isValidSelection() && !hintedCells.contains("$selectedRow-$selectedCol")) {
+                 _saveHistory();
+                 setState(() => board.clearCell(selectedRow, selectedCol));
+               }
+            },
           ),
-
           const SizedBox(height: 20),
         ],
       ),
