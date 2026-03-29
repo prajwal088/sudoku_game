@@ -25,6 +25,7 @@ class SudokuGrid extends StatelessWidget {
   final SudokuBoard board;
   final int selectedRow;
   final int selectedCol;
+  final Set<String> hintedCells;
   final Function(int, int) onCellTap;
 
   const SudokuGrid({
@@ -32,6 +33,7 @@ class SudokuGrid extends StatelessWidget {
     required this.board,
     required this.selectedRow,
     required this.selectedCol,
+    required this.hintedCells,
     required this.onCellTap,
   });
 
@@ -78,64 +80,73 @@ class SudokuGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return AspectRatio(
       aspectRatio: 1, // Perfect square grid
-      child: GridView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: 81,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 9,
+      child: Container(
+        // Outer thick border for the entire grid
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black, width: 2),
         ),
-        itemBuilder: (context, index) {
-          final int row = index ~/ 9;
-          final int col = index % 9;
+        child: GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 81,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 9,
+          ),
+          itemBuilder: (context, index) {
+            final int row = index ~/ 9;
+            final int col = index % 9;
 
-          final int value = board.board[row][col];
+            final int value = board.board[row][col];
 
-          final bool selected =
-              row == selectedRow && col == selectedCol;
+            // ✅ Check if this specific cell was provided by a hint
+            final bool isHinted = hintedCells.contains("$row-$col");
 
-          final bool highlighted = isHighlighted(row, col);
+            final bool isWrong = value != 0 && 
+                !board.fixed[row][col] && 
+                !SudokuValidator.isValidMove(board.board, row, col, value, excludeSelf: true);
 
-          final bool isWrong = isWrongCell(row, col, value);
+            final bool highlighted = isHighlighted(row, col);
 
-          return Container(
-            decoration: BoxDecoration(
-              border: Border(
-                /// TOP BORDER
-                top: BorderSide(
-                  width: row % 3 == 0 ? 2 : 0.5,
-                  color: Colors.black,
-                ),
+            return Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  /// TOP BORDER
+                  top: BorderSide(
+                    width: row % 3 == 0 ? 2 : 0.5,
+                    color: Colors.black,
+                  ),
 
-                /// LEFT BORDER
-                left: BorderSide(
-                  width: col % 3 == 0 ? 2 : 0.5,
-                  color: Colors.black,
-                ),
+                  /// LEFT BORDER
+                  left: BorderSide(
+                    width: col % 3 == 0 ? 2 : 0.5,
+                    color: Colors.black,
+                  ),
 
-                /// RIGHT BORDER
-                right: BorderSide(
-                  width: (col + 1) % 3 == 0 ? 2 : 0.5,
-                  color: Colors.black,
-                ),
+                  /// RIGHT BORDER
+                  right: BorderSide(
+                    width: (col + 1) % 3 == 0 ? 2 : 0.5,
+                    color: Colors.black,
+                  ),
 
-                /// BOTTOM BORDER
-                bottom: BorderSide(
-                  width: (row + 1) % 3 == 0 ? 2 : 0.5,
-                  color: Colors.black,
+                  /// BOTTOM BORDER
+                  bottom: BorderSide(
+                    width: (row + 1) % 3 == 0 ? 2 : 0.5,
+                    color: Colors.black,
+                  ),
                 ),
               ),
-            ),
 
-            child: SudokuCell(
-              number: value,
-              fixed: board.fixed[row][col],
-              selected: selected,
-              highlighted: highlighted,
-              isWrong: isWrong,
-              onTap: () => onCellTap(row, col),
-            ),
-          );
-        },
+              child: SudokuCell(
+                number: value,
+                fixed: board.fixed[row][col],
+                isHinted: isHinted,
+                selected: row == selectedRow && col == selectedCol,
+                highlighted: highlighted,
+                isWrong: isWrong,
+                onTap: () => onCellTap(row, col),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../core/constants/app_colors.dart';
 
 /// ============================================================================
 /// SudokuCell
@@ -32,6 +31,7 @@ class SudokuCell extends StatelessWidget {
   final bool selected;
   final bool highlighted;
   final bool isWrong;
+  final bool isHinted;
   final VoidCallback onTap;
 
   const SudokuCell({
@@ -41,6 +41,7 @@ class SudokuCell extends StatelessWidget {
     required this.selected,
     required this.highlighted,
     required this.isWrong,
+    this.isHinted = false,
     required this.onTap,
   });
 
@@ -57,39 +58,32 @@ class SudokuCell extends StatelessWidget {
   /// ==========================================================================
   /// TEXT STYLE
   /// ==========================================================================
-  TextStyle _getTextStyle() {
-    return TextStyle(
-      fontSize: 20,
-      fontWeight: FontWeight.bold,
-      color: fixed
-          ? AppColors.fixedNumber   // 🔒 Pre-filled number
-          : AppColors.userNumber,   // ✏️ User input
-    );
+  /// Logic to determine text color based on how the number got there
+  Color _getTextColor() {
+    if (isWrong) return Colors.red.shade900;         // Error text
+    if (fixed) return Colors.black;                  // 🔒 Permanent puzzle numbers
+    if (isHinted) return Colors.deepPurple;          // 💡 Hinted numbers
+    return Colors.blue.shade900;                     // ✏️ User input numbers
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Material(
       color: _getBackgroundColor(),
-
-      /// InkWell provides proper ripple (better than GestureDetector)
       child: InkWell(
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: AppColors.gridBorder,
-              width: 0.5,
-            ),
-          ),
-          alignment: Alignment.center,
-
-          /// Avoid unnecessary Text rebuild logic
+        // Splash color gives a nice feedback when tapped
+        splashColor: Colors.blue.withValues(alpha: 0.2), 
+        child: Center(
           child: number == 0
               ? const SizedBox.shrink()
               : Text(
                   number.toString(),
-                  style: _getTextStyle(),
+                  style: TextStyle(
+                    fontSize: 24, // Slightly larger for better readability
+                    fontWeight: fixed ? FontWeight.w900 : FontWeight.w500,
+                    color: _getTextColor(),
+                  ),
                 ),
         ),
       ),

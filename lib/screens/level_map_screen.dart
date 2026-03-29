@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/level.dart';
 import '../services/level_service.dart';
 import '../services/progress_service.dart';
+import '../widgets/enhanced_level_tile.dart';
 
 /// ============================================================================
 /// LevelMapScreen
@@ -81,12 +82,18 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ==========================================================================
   /// LOCK LOGIC (GLOBAL SOURCE OF TRUTH)
   /// ==========================================================================
-  bool isLevelLocked(int index) {
-    int globalLevel =
-        _progressService.getGlobalLevel(widget.world, index + 1);
-
-    return globalLevel > currentGlobalLevel;
-  }
+  /// Helper to determine the state for the EnhancedLevelTile
+    LevelTileState _getTileState(Level level, int index) {
+      int globalLevelIdx = _progressService.getGlobalLevel(widget.world, index + 1);
+      
+      if (globalLevelIdx > currentGlobalLevel) {
+        return LevelTileState.locked;
+      } else if (globalLevelIdx < currentGlobalLevel || level.isCompleted) {
+        return LevelTileState.completed;
+      } else {
+        return LevelTileState.inProgress;
+      }
+    }
 
   /// ==========================================================================
   /// CURRENT LEVEL INDEX (ACCURATE)
@@ -128,11 +135,11 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// NAVIGATION
   /// ==========================================================================
   void _openLevel(Level level, int index) {
-    if (isLevelLocked(index)) {
+    int globalLevelIdx = _progressService.getGlobalLevel(widget.world, index + 1);
+    
+    if (globalLevelIdx > currentGlobalLevel) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Complete previous level to unlock"),
-        ),
+        const SnackBar(content: Text("Complete previous level to unlock")),
       );
       return;
     }
@@ -148,21 +155,6 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   }
 
   /// ==========================================================================
-  /// LEVEL COLOR LOGIC
-  /// ==========================================================================
-  Color getLevelColor(Level level, int index) {
-    if (isLevelLocked(index)) {
-      return Colors.grey.shade300;
-    }
-
-    if (level.isCompleted) {
-      return Colors.green.shade400;
-    }
-
-    return Colors.orange.shade400;
-  }
-
-  /// ==========================================================================
   /// UI
   /// ==========================================================================
   @override
@@ -173,19 +165,17 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       );
     }
 
-    int currentIndex = getCurrentLevelIndex();
-
     return Scaffold(
       appBar: AppBar(
         title: Text("🌍 World ${widget.world}"),
         centerTitle: true,
+        elevation: 0,
       ),
       body: GridView.builder(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         itemCount: levels.length,
-        gridDelegate:
-            const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: itemsPerRow,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
@@ -193,87 +183,13 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         ),
         itemBuilder: (context, index) {
           final level = levels[index];
-          final locked = isLevelLocked(index);
-          final isCurrent = index == currentIndex;
+          final state = _getTileState(level, index);
 
-          return GestureDetector(
-            onTap: locked ? null : () => _openLevel(level, index),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              decoration: BoxDecoration(
-                color: getLevelColor(level, index),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  if (!locked)
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: isCurrent ? 10 : 4,
-                      offset: const Offset(0, 3),
-                    )
-                ],
-              ),
-              child: Stack(
-                children: [
-                  /// LEVEL NUMBER
-                  Center(
-                    child: Text(
-                      "${level.levelNumber}",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color:
-                            locked ? Colors.black38 : Colors.white,
-                      ),
-                    ),
-                  ),
-
-                  /// LOCK ICON
-                  if (locked)
-                    const Center(
-                      child: Icon(
-                        Icons.lock,
-                        color: Colors.black45,
-                      ),
-                    ),
-
-                  /// STARS
-                  if (!locked && level.stars > 0)
-                    Positioned(
-                      bottom: 4,
-                      left: 0,
-                      right: 0,
-                      child: Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
-                        children: List.generate(3, (i) {
-                          return Icon(
-                            i < level.stars
-                                ? Icons.star
-                                : Icons.star_border,
-                            size: 12,
-                            color: Colors.amber,
-                          );
-                        }),
-                      ),
-                    ),
-
-                  /// CURRENT LEVEL HIGHLIGHT
-                  if (isCurrent && !locked)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+          return EnhancedLevelTile(
+            levelNumber: level.levelNumber,
+            state: state,
+            stars: level.stars,
+            onTap: () => _openLevel(level, index),
           );
         },
       ),

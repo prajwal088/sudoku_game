@@ -293,36 +293,52 @@ class _GameScreenState extends State<GameScreen>
           ))
         ],
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 12),
-          Text(_formatTime(_secondsElapsed), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
+      body: SafeArea(
+        child: Column(
+          // 2. Set to start to pull everything toward the top
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            const SizedBox(height: 12),
+            Text(
+              _formatTime(_secondsElapsed), 
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)
+            ),
+            const SizedBox(height: 10),
+            
+            // 3. Removed Expanded from here to prevent the "dead space" stretching
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: SudokuGrid(
                 board: board,
                 selectedRow: selectedRow,
                 selectedCol: selectedCol,
-                hintedCells: hintedCells, // Pass this to your widget to style them!
-                onCellTap: (r, c) => setState(() { selectedRow = r; selectedCol = c; }),
+                hintedCells: hintedCells,
+                onCellTap: (r, c) => setState(() { 
+                  selectedRow = r; 
+                  selectedCol = c; 
+                }),
               ),
             ),
-          ),
-          NumberPad(
-            onNumberSelected: inputNumber,
-            onUndo: undoMove,
-            onHint: giveHint,
-            onErase: () {
-               if (_isValidSelection() && !hintedCells.contains("$selectedRow-$selectedCol")) {
-                 _saveHistory();
-                 setState(() => board.clearCell(selectedRow, selectedCol));
-               }
-            },
-          ),
-          const SizedBox(height: 20),
-        ],
+
+            // 4. Tighten the gap between Grid and NumberPad
+            const SizedBox(height: 20),
+
+            NumberPad(
+              onNumberSelected: inputNumber,
+              onUndo: undoMove,
+              onHint: giveHint,
+              onErase: () {
+                if (_isValidSelection() && !hintedCells.contains("$selectedRow-$selectedCol")) {
+                  _saveHistory();
+                  setState(() => board.clearCell(selectedRow, selectedCol));
+                }
+              },
+            ),
+            
+            // 5. This Spacer pushes everything UP and fills the gap at the bottom
+            const Spacer(),
+          ],
+        ),
       ),
     );
   }
