@@ -124,7 +124,7 @@ class SudokuApp extends StatelessWidget {
               } else if (args is Map<String, dynamic>) {
                 return MaterialPageRoute(
                   builder: (_) => GameScreen(
-                    levelNumber: args["level"] ?? 1,
+                    levelNumber: args["levelNumber"] ?? 1,
                     world: args["world"] ?? 1,
                   ),
                 );

@@ -232,7 +232,7 @@ class _GameScreenState extends State<GameScreen>
   // WIN CONDITION & NAVIGATION
   // ==========================================================================
 
-  void _checkWin() {
+  Future<void> _checkWin() async {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
     if (!SudokuValidator.isValidSolution(board.board, board.solution)) return;
 
@@ -240,13 +240,13 @@ class _GameScreenState extends State<GameScreen>
     int stars = _calculateStars();
 
     // FIX: Using the correct method name from our ProgressService
-    progressService.completeLevel(
+    await progressService.completeLevel(
       globalLevel: widget.levelNumber, // This is our source of truth
       timeInSeconds: _secondsElapsed,
       stars: stars,
     );
 
-    _showWinScreen(stars);
+    if (mounted) _showWinScreen(stars);
   }
 
   int _calculateStars() {
@@ -285,7 +285,7 @@ class _GameScreenState extends State<GameScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Level ${widget.levelNumber}"),
+        title: Text("World ${widget.world} - Level ${progressService.getLevelInWorld(widget.levelNumber)}"),
         actions: [
           Center(child: Padding(
             padding: const EdgeInsets.only(right: 16.0),

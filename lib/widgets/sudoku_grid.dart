@@ -44,7 +44,7 @@ class SudokuGrid extends StatelessWidget {
   /// - Same row
   /// - Same column
   /// - Same 3x3 box
-  bool isHighlighted(int row, int col) {
+  bool _isHighlighted(int row, int col) {
     if (selectedRow == -1 || selectedCol == -1) return false;
 
     return row == selectedRow ||
@@ -57,20 +57,17 @@ class SudokuGrid extends StatelessWidget {
   /// VALIDATION (SAFE CHECK)
   /// ==========================================================================
   /// Ensures current cell value is valid without self-conflict
-  bool isWrongCell(int row, int col, int value) {
-    if (value == 0) return false;
+  bool _isWrongCell(int row, int col, int value) {
+    if (value == 0 || board.fixed[row][col]) return false;
 
-    // Temporarily remove value to avoid self-check conflict
-    final temp = board.board[row][col];
-    board.board[row][col] = 0;
-
-    final isValid =
-        SudokuValidator.isValidMove(board.board, row, col, value);
-
-    // Restore value
-    board.board[row][col] = temp;
-
-    return !isValid;
+// Use the validator with the excludeSelf flag for a clean check
+    return !SudokuValidator.isValidMove(
+      board.board, 
+      row, 
+      col, 
+      value, 
+      excludeSelf: true
+    );
   }
 
   /// ==========================================================================
@@ -97,56 +94,32 @@ class SudokuGrid extends StatelessWidget {
 
             final int value = board.board[row][col];
 
-            // ✅ Check if this specific cell was provided by a hint
-            final bool isHinted = hintedCells.contains("$row-$col");
-
-            final bool isWrong = value != 0 && 
-                !board.fixed[row][col] && 
-                !SudokuValidator.isValidMove(board.board, row, col, value, excludeSelf: true);
-
-            final bool highlighted = isHighlighted(row, col);
-
             return Container(
-              decoration: BoxDecoration(
-                border: Border(
-                  /// TOP BORDER
-                  top: BorderSide(
-                    width: row % 3 == 0 ? 2 : 0.5,
-                    color: Colors.black,
-                  ),
-
-                  /// LEFT BORDER
-                  left: BorderSide(
-                    width: col % 3 == 0 ? 2 : 0.5,
-                    color: Colors.black,
-                  ),
-
-                  /// RIGHT BORDER
-                  right: BorderSide(
-                    width: (col + 1) % 3 == 0 ? 2 : 0.5,
-                    color: Colors.black,
-                  ),
-
-                  /// BOTTOM BORDER
-                  bottom: BorderSide(
-                    width: (row + 1) % 3 == 0 ? 2 : 0.5,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-
+              decoration: _buildCellBoxDecoration(row, col), // Extracted for clarity
               child: SudokuCell(
                 number: value,
                 fixed: board.fixed[row][col],
-                isHinted: isHinted,
+                isHinted: hintedCells.contains("$row-$col"),
                 selected: row == selectedRow && col == selectedCol,
-                highlighted: highlighted,
-                isWrong: isWrong,
+                highlighted: _isHighlighted(row, col),
+                isWrong: _isWrongCell(row, col, value), // Using the helper here
                 onTap: () => onCellTap(row, col),
               ),
             );
           },
         ),
+      ),
+    );
+  }
+
+/// Helper to keep the itemBuilder clean of border math
+  BoxDecoration _buildCellBoxDecoration(int row, int col) {
+    return BoxDecoration(
+      border: Border(
+        top: BorderSide(width: row % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        left: BorderSide(width: col % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        right: BorderSide(width: (col + 1) % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        bottom: BorderSide(width: (row + 1) % 3 == 0 ? 2 : 0.5, color: Colors.black),
       ),
     );
   }

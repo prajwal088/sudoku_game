@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/main.dart';
 
 import '../widgets/world_tile.dart';
 import '../services/progress_service.dart';
-import 'level_map_screen.dart';
+
 
 /// ============================================================================
 /// WorldMapScreen
@@ -52,17 +53,20 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   /// ==========================================================================
   /// LOAD PROGRESS (OPTIMIZED + SAFE)
   /// ==========================================================================
+  /// ==========================================================================
+  /// LOAD PROGRESS (UPDATED & FIXED)
+  /// ==========================================================================
   Future<void> _loadProgress() async {
     /// Prevent duplicate calls
     if (_isLoading) return;
     _isLoading = true;
 
     try {
-      /// Fetch highest unlocked world
-      final unlockedWorld =
-          await _progressService.getHighestUnlockedWorld();
+      /// 1. Fetch highest unlocked world
+      final unlockedWorld = await _progressService.getHighestUnlockedWorld();
 
-      /// Fetch stars in parallel (performance optimization)
+      /// 2. Fetch stars in parallel (performance optimization)
+      /// Note: Using getStarsForWorld for each world as per your original logic
       final futures = List.generate(totalWorlds, (index) {
         int world = index + 1;
         return _progressService.getStarsForWorld(world);
@@ -70,17 +74,18 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
 
       final results = await Future.wait(futures);
 
-      /// Map results → {world: stars}
-      Map<int, int> tempStars = {};
+      /// 3. Map results → {world: stars}
+      /// FIXED: Removed the second 'final' declaration to prevent "Already Defined" error
+      Map<int, int> tempStarsMap = {}; 
       for (int i = 0; i < results.length; i++) {
-        tempStars[i + 1] = results[i];
+        tempStarsMap[i + 1] = results[i];
       }
 
       if (!mounted) return;
 
       setState(() {
         highestUnlockedWorld = unlockedWorld;
-        worldStars = tempStars;
+        worldStars = tempStarsMap; // Updated to match the map name above
         loading = false;
       });
     } catch (e) {
@@ -106,11 +111,10 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
       return;
     }
 
-    await Navigator.push(
+    await Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (_) => LevelMapScreen(world: worldNumber),
-      ),
+      AppRoutes.levels,
+      arguments: worldNumber,
     );
 
     /// Refresh progress after returning

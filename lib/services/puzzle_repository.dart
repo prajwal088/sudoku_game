@@ -39,7 +39,7 @@ class PuzzleRepository {
 
     // Note: Your SudokuSolver.solve() needs to handle an empty board 
     // by filling it with a random valid sequence to ensure variety.
-    SudokuSolver.solve(board); 
+    SudokuSolver.solve(board, randomize: true);
 
     _shuffleBoard(board, random);
     return board;

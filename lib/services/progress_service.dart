@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// ============================================================================
@@ -16,11 +17,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// ============================================================================
 
 class ProgressService {
+
+  // Singleton pattern so all screens share the same Stream controllers
+  static final ProgressService _instance = ProgressService._internal();
+  factory ProgressService() => _instance;
+  ProgressService._internal();
+
   /// Key used to store progress in SharedPreferences
   static const String _progressKey = "sudoku_progress";
 
   /// Total number of levels per world
   static const int levelsPerWorld = 25;
+
+  final StreamController<int> _worldCompletionController = StreamController<int>.broadcast();
+  Stream<int> get onWorldCompleted => _worldCompletionController.stream;
 
   /// ==========================================================================
   /// DEFAULT PROGRESS STRUCTURE
@@ -137,8 +147,13 @@ class ProgressService {
     int worldOfCompletedLevel = getWorldFromGlobal(globalLevel);
     int localLevel = getLevelInWorld(globalLevel);
     
-    if (localLevel == levelsPerWorld && progress["highestUnlockedWorld"] <= worldOfCompletedLevel) {
-      progress["highestUnlockedWorld"] = worldOfCompletedLevel + 1;
+if (localLevel == levelsPerWorld) {
+      // Trigger the stream when a world is finished
+      _worldCompletionController.add(worldOfCompletedLevel);
+
+      if (progress["highestUnlockedWorld"] <= worldOfCompletedLevel) {
+        progress["highestUnlockedWorld"] = worldOfCompletedLevel + 1;
+      }
     }
 
     progress["completedLevels"] = completed.toList();
@@ -163,6 +178,24 @@ class ProgressService {
     return progress["currentLevel"] ?? 1;
   }
 
+  // Optimized helper to avoid 10 loop database reads in the UI
+  Future<Map<int, int>> getAllWorldStars(int totalWorlds) async {
+    final progress = await loadProgress();
+    final Map<String, int> starsMap = Map<String, int>.from(progress["stars"] ?? {});
+
+    Map<int, int> worldStars = {};
+    for (int w = 1; w <= totalWorlds; w++) {
+      int total = 0;
+      int start = getGlobalLevel(w, 1);
+      int end = getGlobalLevel(w, levelsPerWorld);
+      for (int i = start; i <= end; i++) {
+        total += starsMap[i.toString()] ?? 0;
+      }
+      worldStars[w] = total;
+    }
+    return worldStars;
+  }
+
   /// Get total stars earned in a world (Add this to ProgressService)
   Future<int> getStarsForWorld(int world) async {
     final progress = await loadProgress();
@@ -182,5 +215,10 @@ class ProgressService {
   Future<void> resetProgress() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_progressKey);
+  }
+
+  // Dispose for the stream
+  void dispose() {
+    _worldCompletionController.close();
   }
 }
