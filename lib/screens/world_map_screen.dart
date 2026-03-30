@@ -57,50 +57,45 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   /// LOAD PROGRESS (UPDATED & FIXED)
   /// ==========================================================================
   Future<void> _loadProgress() async {
-    /// Prevent duplicate calls
-    if (_isLoading) return;
+  if (_isLoading) return;
+
+  setState(() {
     _isLoading = true;
+    if (worldStars.isEmpty) loading = true;
+  });
 
-    try {
-      /// 1. Fetch highest unlocked world
-      final unlockedWorld = await _progressService.getHighestUnlockedWorld();
+  try {
+    // 1. Fetch the unlocked world level
+    final int unlockedWorld = await _progressService.getHighestUnlockedWorld();
 
-      /// 2. Fetch stars in parallel (performance optimization)
-      /// Note: Using getStarsForWorld for each world as per your original logic
-      final futures = List.generate(totalWorlds, (index) {
-        int world = index + 1;
-        return _progressService.getStarsForWorld(world);
-      });
+    // 2. Fetch all stars in parallel (keeping types clean)
+    final List<int> starCounts = await Future.wait(
+      List.generate(totalWorlds, (i) => _progressService.getStarsForWorld(i + 1))
+    );
 
-      final results = await Future.wait(futures);
+    // 3. Map results
+    final Map<int, int> tempStarsMap = {
+      for (int i = 0; i < starCounts.length; i++) i + 1: starCounts[i]
+    };
 
-      /// 3. Map results → {world: stars}
-      /// FIXED: Removed the second 'final' declaration to prevent "Already Defined" error
-      Map<int, int> tempStarsMap = {}; 
-      for (int i = 0; i < results.length; i++) {
-        tempStarsMap[i + 1] = results[i];
-      }
+    if (!mounted) return;
 
-      if (!mounted) return;
-
-      setState(() {
-        highestUnlockedWorld = unlockedWorld;
-        worldStars = tempStarsMap; // Updated to match the map name above
-        loading = false;
-      });
-    } catch (e) {
-      /// Log error for debugging (important for production)
-      debugPrint("WorldMapScreen Error: $e");
-
-      if (!mounted) return;
-
-      setState(() {
-        loading = false;
-      });
-    } finally {
+    setState(() {
+      highestUnlockedWorld = unlockedWorld;
+      worldStars = tempStarsMap;
+      loading = false;
       _isLoading = false;
+    });
+  } catch (e) {
+    debugPrint("WorldMapScreen Error: $e");
+    if (mounted) {
+      setState(() {
+        loading = false;
+        _isLoading = false;
+      });
     }
   }
+}
 
   /// ==========================================================================
   /// WORLD TAP HANDLER

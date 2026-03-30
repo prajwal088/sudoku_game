@@ -32,6 +32,9 @@ class ProgressService {
   final StreamController<int> _worldCompletionController = StreamController<int>.broadcast();
   Stream<int> get onWorldCompleted => _worldCompletionController.stream;
 
+  final StreamController<void> _progressUpdateController = StreamController<void>.broadcast();
+  Stream<void> get onProgressUpdate => _progressUpdateController.stream;
+
   /// ==========================================================================
   /// DEFAULT PROGRESS STRUCTURE
   /// ==========================================================================
@@ -161,6 +164,9 @@ if (localLevel == levelsPerWorld) {
     progress["stars"] = starsMap;
 
     await saveProgress(progress);
+
+    // Tell everyone listening that data has changed!
+    _progressUpdateController.add(null);
   }
 
   /// ==========================================================================
@@ -211,6 +217,17 @@ if (localLevel == levelsPerWorld) {
 
     return totalStars;
   }
+
+  /// Checks if the level just played is the one the user was "stuck" on.
+  /// If it is lower than currentLevel, it's a replay.
+  Future<bool> isReplayingLevel(int globalLevel) async {
+    final progress = await loadProgress();
+    int current = progress["currentLevel"] ?? 1;
+    
+  // If the level played is less than the current unlocked level, 
+  // it means they are replaying an old one.
+  return globalLevel < current;
+}
 
   Future<void> resetProgress() async {
     final prefs = await SharedPreferences.getInstance();

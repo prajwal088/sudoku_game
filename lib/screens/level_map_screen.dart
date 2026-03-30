@@ -5,6 +5,8 @@ import '../services/level_service.dart';
 import '../services/progress_service.dart';
 import '../widgets/enhanced_level_tile.dart';
 
+import 'dart:async';
+
 /// ============================================================================
 /// LevelMapScreen
 /// ----------------------------------------------------------------------------
@@ -30,11 +32,14 @@ class LevelMapScreen extends StatefulWidget {
 }
 
 class _LevelMapScreenState extends State<LevelMapScreen> {
+
+  StreamSubscription? _progressSubscription;
+
   final LevelService _levelService = LevelService();
   final ProgressService _progressService = ProgressService();
 
   List<Level> levels = [];
-  bool loading = true;
+  bool isLoading = true;
 
   int currentGlobalLevel = 1;
 
@@ -46,13 +51,20 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadProgress();
+
+      _progressSubscription = _progressService.onProgressUpdate.listen((_) {
+      if (mounted) {
+        debugPrint("Home Screen detected progress update! Refreshing...");
+        _loadProgress();
+      }
+    });
   }
 
   /// ==========================================================================
   /// LOAD LEVELS + PROGRESS
   /// ==========================================================================
-  Future<void> _loadData() async {
+  Future<void> _loadProgress() async {
     final loadedLevels =
         await _levelService.getLevelsByWorld(widget.world);
 
@@ -64,7 +76,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     setState(() {
       levels = loadedLevels;
       currentGlobalLevel = globalLevel;
-      loading = false;
+      isLoading = false;
     });
 
     /// Scroll after UI is built
@@ -119,7 +131,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ==========================================================================
   /// NAVIGATION
   /// ==========================================================================
-  void _openLevel(Level level) {
+  Future<void> _openLevel(Level level) async {
     if (level.levelNumber > currentGlobalLevel) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Complete previous levels first!")),
@@ -127,15 +139,18 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       return;
     }
 
-    Navigator.pushNamed(
+    await Navigator.pushNamed(
       context,
       "/game",
       arguments: {
         "levelNumber": level.levelNumber, // THE GLOBAL ID
         "world": widget.world,
-        "level": _progressService.getLevelInWorld(level.levelNumber), // THE LOCAL ID
       },
-    ).then((_) => _loadData()); // Refresh when coming back
+    );
+    if (mounted) {
+      debugPrint("Returning from game, refreshing level map...");
+      _loadProgress(); // This refreshes your stars and locks!
+    }
   }
 
   /// ==========================================================================
@@ -143,7 +158,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ==========================================================================
   @override
   Widget build(BuildContext context) {
-    if (loading) {
+    if (isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
@@ -155,7 +170,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: _loadProgress,
           )
         ],
       ),
@@ -173,7 +188,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
           final level = levels[index];
           return EnhancedLevelTile(
             // Show the LOCAL number (1-25) on the tile for the user
-            levelNumber: _progressService.getLevelInWorld(level.levelNumber),
+            levelNumber: level.levelNumber,
             state: _getTileState(level),
             stars: level.stars,
             onTap: () => _openLevel(level),
@@ -185,6 +200,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   
   @override
   void dispose() {
+    _progressSubscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }

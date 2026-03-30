@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/progress_service.dart';
 import 'world_map_screen.dart';
+import 'dart:async';
 
 /// ============================================================================
 /// HomeScreen
@@ -23,6 +24,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
+
+  // Define the subscription variable
+  StreamSubscription? _progressSubscription;
+
   /// Service layer (handles all progression logic)
   final ProgressService progressService = ProgressService();
 
@@ -38,6 +43,14 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
 
     _loadProgress();
+
+    // 🎧 Start listening for updates
+  _progressSubscription = progressService.onProgressUpdate.listen((_) {
+    if (mounted) {
+      debugPrint("Home Screen detected progress update! Refreshing...");
+      _loadProgress();
+    }
+  });
 
     /// Initialize animation
     controller = AnimationController(
@@ -73,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    _progressSubscription?.cancel();  // Stop listening to prevent memory leaks
     controller.dispose();
     super.dispose();
   }
@@ -93,7 +107,6 @@ class _HomeScreenState extends State<HomeScreen>
     final data = progressService.getWorldAndLevel(globalLevel);
 
     int world = data["world"]!;
-    int level = data["level"]!;
 
 /*
     /// Debug log (remove in release if needed)
@@ -106,13 +119,14 @@ class _HomeScreenState extends State<HomeScreen>
       context,
       "/game",
       arguments: {
-        "level": level,   // LOCAL level (1–25)
+        "levelNumber": globalLevel,   // Send the unique Global ID (1-250)
         "world": world,   // World number
       },
     );
 
     /// Step 4: Reload progress after returning
     if (mounted) {
+      debugPrint("Returned to Home. Re-loading progress...");
       await _loadProgress();
     }
   }

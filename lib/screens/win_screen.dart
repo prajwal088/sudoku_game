@@ -36,6 +36,9 @@ class _WinScreenState extends State<WinScreen>
     with TickerProviderStateMixin {
   final ProgressService progressService = ProgressService();
 
+  bool _isReplay = false;
+  bool _isLoadingNext = true;
+
   late AnimationController _trophyController;
   late Animation<double> _trophyScale;
 
@@ -68,11 +71,25 @@ class _WinScreenState extends State<WinScreen>
   /// INITIALIZATION
   /// ==========================================================================
   Future<void> _initialize() async {
+
+    // Check if this is a replay
+    final int nextUnlockedLevel = await progressService.getNextUnlockedLevel();
+    final int highestWorld = await progressService.getHighestUnlockedWorld();
+    
+    if (mounted) {
+      setState(() {
+        // If the level we just finished is smaller than the next unlocked one,
+        // it means we are replaying an old level.
+        _isReplay = widget.levelNumber < nextUnlockedLevel - 1;
+        _isLoadingNext = false;
+      });
+    }
+    
     /// Check if world is completed (accurate check)
     bool isLastLevelOfWorld = 
         progressService.getLevelInWorld(widget.levelNumber) == ProgressService.levelsPerWorld;
 
-    if (isLastLevelOfWorld) {
+    if (isLastLevelOfWorld && !_isReplay && highestWorld <= widget.world) {
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _showWorldCompleteDialog(widget.world);
@@ -246,26 +263,40 @@ class _WinScreenState extends State<WinScreen>
 
               const SizedBox(height: 40),
 
-              /// NEXT LEVEL
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pushReplacementNamed(
-                    context,
-                    "/game",
-                    arguments: _getNextLevelArgs(),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 50,
-                    vertical: 16,
+              /// ==============================================================
+              /// NEXT LEVEL BUTTON (CONDITIONAL)
+              /// ==============================================================
+              // Only show if:
+              // 1. Data is finished loading (_isLoadingNext)
+              // 2. It is NOT a replay (_isReplay)
+              // 3. It is NOT the last level of the world
+              if (!_isLoadingNext && 
+                  !_isReplay && 
+                  progressService.getLevelInWorld(widget.levelNumber) != ProgressService.levelsPerWorld)
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pushReplacementNamed(
+                      context,
+                      "/game",
+                      arguments: _getNextLevelArgs(),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 50,
+                      vertical: 16,
+                    ),
                   ),
+                  child: const Text(
+                    "Next Level",
+                    style: TextStyle(fontSize: 18),
+                  ),
+                )
+              else if (_isReplay)
+                const Text(
+                  "Replaying Level - Progress Saved",
+                  style: TextStyle(color: Colors.blueGrey, fontStyle: FontStyle.italic),
                 ),
-                child: const Text(
-                  "Next Level",
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
 
               const SizedBox(height: 15),
 
@@ -278,6 +309,9 @@ class _WinScreenState extends State<WinScreen>
                     arguments: _getReplayArgs(),
                   );
                 },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                ),
                 child: const Text("Replay Level"),
               ),
 
@@ -288,7 +322,7 @@ class _WinScreenState extends State<WinScreen>
                 onPressed: () {
                   Navigator.pop(context);
                 },
-                child: const Text("Level Map"),
+                child: const Text("Back to Level Map"),
               ),
             ],
           ),
