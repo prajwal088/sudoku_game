@@ -75,12 +75,14 @@ class _WinScreenState extends State<WinScreen>
     // Check if this is a replay
     final int nextUnlockedLevel = await progressService.getNextUnlockedLevel();
     final int highestWorld = await progressService.getHighestUnlockedWorld();
+
+    bool isReplay = widget.levelNumber < nextUnlockedLevel - 1;
     
     if (mounted) {
       setState(() {
         // If the level we just finished is smaller than the next unlocked one,
         // it means we are replaying an old level.
-        _isReplay = widget.levelNumber < nextUnlockedLevel - 1;
+        _isReplay = isReplay;
         _isLoadingNext = false;
       });
     }
@@ -89,7 +91,7 @@ class _WinScreenState extends State<WinScreen>
     bool isLastLevelOfWorld = 
         progressService.getLevelInWorld(widget.levelNumber) == ProgressService.levelsPerWorld;
 
-    if (isLastLevelOfWorld && !_isReplay && highestWorld <= widget.world) {
+    if (isLastLevelOfWorld && !isReplay && highestWorld <= widget.world) {
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _showWorldCompleteDialog(widget.world);

@@ -14,9 +14,9 @@ import 'services/user_service.dart';
 /// ROUTE ARGUMENT MODELS (TYPE SAFETY)
 /// ============================================================================
 class GameArguments {
-  final int level;
+  final int levelNumber;
   final int world;
-  GameArguments({required this.level, required this.world});
+  GameArguments({required this.levelNumber, required this.world});
 }
 
 /// ============================================================================
@@ -119,7 +119,7 @@ class SudokuApp extends StatelessWidget {
                 // Support both Map and GameArguments class for transition period
               if (args is GameArguments) {
                 return MaterialPageRoute(
-                  builder: (_) => GameScreen(levelNumber: args.level, world: args.world),
+                  builder: (_) => GameScreen(levelNumber: args.levelNumber, world: args.world),
                 );
               } else if (args is Map<String, dynamic>) {
                 return MaterialPageRoute(

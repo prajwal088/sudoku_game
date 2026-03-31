@@ -223,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen>
                   IconButton(
                     icon: const Icon(Icons.bar_chart, size: 28),
                     onPressed: () {
-                      Navigator.pushNamed(context, "/stats");
+                      Navigator.pushNamed(context, "/statistics");
                     },
                   ),
 

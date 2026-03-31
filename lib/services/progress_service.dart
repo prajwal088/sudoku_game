@@ -172,6 +172,42 @@ if (localLevel == levelsPerWorld) {
   /// ==========================================================================
   /// WORLD HELPERS
   /// ==========================================================================
+  
+  // --- STATISTICS HELPER ---
+  /// Fetches aggregated data for the Statistics Screen
+  Future<Map<String, dynamic>> getGlobalStats() async {
+    final progress = await loadProgress();
+    
+    // Convert keys to a list to count them
+    final Map<String, int> bestTimes = Map<String, int>.from(progress["bestTimes"]);
+    final Map<String, int> starsMap = Map<String, int>.from(progress["stars"]);
+    final List<int> completed = List<int>.from(progress["completedLevels"]);
+    final int highestWorld = progress["highestUnlockedWorld"] ?? 1;
+
+    // 1. Calculate Totals
+    int totalStars = 0;
+    starsMap.forEach((_, value) => totalStars += value);
+
+    int totalTime = 0;
+    bestTimes.forEach((_, value) => totalTime += value);
+
+    // 2. Calculate Averages based ONLY on completed levels
+    double avgSpeed = completed.isEmpty ? 0 : totalTime / completed.length;
+
+    // 3. Dynamic Completion Logic
+    // We compare completed levels against the total levels available in 
+    // all worlds the user has currently unlocked.
+    int availableLevels = highestWorld * levelsPerWorld;
+    double completionPercent = completed.isEmpty ? 0 : completed.length / availableLevels;
+
+    return {
+      "totalLevels": completed.length,
+      "totalStars": totalStars,
+      "totalTime": totalTime,
+      "avgSpeed": avgSpeed.round(),
+      "completionPercent": completionPercent.clamp(0.0, 1.0),
+    };
+  }
 
   /// Get highest unlocked world
   Future<int> getHighestUnlockedWorld() async {

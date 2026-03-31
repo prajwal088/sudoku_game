@@ -36,7 +36,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   StreamSubscription? _progressSubscription;
 
   final LevelService _levelService = LevelService();
-  final ProgressService _progressService = ProgressService();
+  final ProgressService progressService = ProgressService();
 
   List<Level> levels = [];
   bool isLoading = true;
@@ -53,7 +53,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     super.initState();
     _loadProgress();
 
-      _progressSubscription = _progressService.onProgressUpdate.listen((_) {
+      _progressSubscription = progressService.onProgressUpdate.listen((_) {
       if (mounted) {
         debugPrint("Home Screen detected progress update! Refreshing...");
         _loadProgress();
@@ -69,7 +69,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         await _levelService.getLevelsByWorld(widget.world);
 
     final globalLevel =
-        await _progressService.getNextUnlockedLevel();
+        await progressService.getNextUnlockedLevel();
 
     if (!mounted) return;
 
