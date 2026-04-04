@@ -139,12 +139,15 @@ class _WorldTileState extends State<WorldTile> {
 
             /// ================= MAIN TILE =================
             AnimatedScale(
+              // Use a slightly more rigid curve to prevent "wobble" during scroll
+              curve: Curves.decelerate,
               scale: widget.isLocked ? 0.95 : 1,
-              duration: const Duration(milliseconds: 300),
+              duration: const Duration(milliseconds: 150),
 
               child: AnimatedOpacity(
+                // Match the duration to the scale for a synchronized feel
                 opacity: widget.isLocked ? 0.7 : 1,
-                duration: const Duration(milliseconds: 300),
+                duration: const Duration(milliseconds: 150),
 
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
