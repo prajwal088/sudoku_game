@@ -22,7 +22,15 @@ import '../logic/sudoku_validator.dart';
 /// ============================================================================
 
 class SudokuGrid extends StatelessWidget {
+  /// Constants for grid dimensions
+  static const int gridSize = 9;
+  static const int subGridSize = 3;
+  static const int totalCells = gridSize * gridSize;
+
+  /// Sudoku board data model
   final SudokuBoard board;
+
+  /// Currently selected cell position (-1 means none)
   final int selectedRow;
   final int selectedCol;
   final Set<String> hintedCells;
@@ -47,10 +55,14 @@ class SudokuGrid extends StatelessWidget {
   bool _isHighlighted(int row, int col) {
     if (selectedRow == -1 || selectedCol == -1) return false;
 
-    return row == selectedRow ||
-        col == selectedCol ||
-        (row ~/ 3 == selectedRow ~/ 3 &&
-            col ~/ 3 == selectedCol ~/ 3);
+    final sameRow = row == selectedRow;
+    final sameCol = col == selectedCol;
+
+    final sameSubGrid =
+        (row ~/ subGridSize == selectedRow ~/ subGridSize) &&
+        (col ~/ subGridSize == selectedCol ~/ subGridSize);
+
+    return sameRow || sameCol || sameSubGrid;
   }
 
   /// ==========================================================================
