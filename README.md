@@ -1,17 +1,19 @@
-# sudoku_game
+# Sudoku Game
 
-A new Flutter project.
+This is a personal version of the Sudoku game created for fun and learning purposes. 
 
-## Getting Started
+## Features
+- Simple user interface
+- Easy to use
+- Customizable difficulty levels
 
-This project is a starting point for a Flutter application.
+## How to Play
+1. Choose a difficulty level.
+2. Fill the grid with numbers from 1 to 9.
+3. Ensure that each number appears only once in each row, column, and 3x3 sub-grid.
 
-A few resources to get you started if this is your first Flutter project:
+## Installation
+Clone the repository and open the game in your preferred environment.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Contributing
+Feel free to open issues or submit pull requests!

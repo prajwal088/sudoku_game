@@ -3,30 +3,38 @@ import '../logic/sudoku_solver.dart';
 import '../models/sudoku_board.dart';
 
 class GameService {
+  static const int _defaultEmptyCells = 40;
 
-  SudokuBoard newGame() {
+  /// Generates a board from scratch (Random Play)
+  SudokuBoard newGame({int emptyCells = _defaultEmptyCells}) {
+    final SudokuGenerator generator = SudokuGenerator();
 
-    SudokuGenerator generator = SudokuGenerator();
+    // 1. Generate the raw grid
+    final List<List<int>> puzzle = generator.generatePuzzle(emptyCells);
 
-    List<List<int>> puzzle = generator.generatePuzzle(45);
+    // 2. Create a solution by solving a copy of the puzzle
+    final List<List<int>> solutionCopy = _cloneGrid(puzzle);
+    final bool solved = SudokuSolver.solve(solutionCopy);
 
-    // Copy puzzle to create solution board
-    List<List<int>> solution =
-        puzzle.map((row) => List<int>.from(row)).toList();
+    if (!solved) {
+      throw Exception("Sudoku Engine Error: Generated an unsolvable puzzle.");
+    }
 
-    // Solve puzzle
-    SudokuSolver.solve(solution);
-
-    // Fixed cells
-    List<List<bool>> fixed =
-        puzzle.map((row) => row.map((n) => n != 0).toList()).toList();
+    // 3. Define which cells are fixed (not zero)
+    final List<List<bool>> fixed = puzzle
+        .map((row) => row.map((cell) => cell != 0).toList())
+        .toList();
 
     return SudokuBoard(
-      board: puzzle.map((row) => List<int>.from(row)).toList(),
-      puzzle: puzzle,
-      solution: solution,
+      board: _cloneGrid(puzzle),
+      puzzle: _cloneGrid(puzzle),
+      solution: solutionCopy,
       fixed: fixed,
     );
   }
 
+  /// Deep copy utility to prevent reference pointer bugs
+  List<List<int>> _cloneGrid(List<List<int>> source) {
+    return source.map((row) => List<int>.from(row)).toList();
+  }
 }

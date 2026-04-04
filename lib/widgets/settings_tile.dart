@@ -1,5 +1,23 @@
 import 'package:flutter/material.dart';
 
+/// ============================================================================
+/// SettingsTile
+/// ----------------------------------------------------------------------------
+/// Reusable settings item widget
+///
+/// Features:
+/// - Icon + Title + Optional Subtitle
+/// - Optional trailing widget (e.g., arrow, switch, copy button)
+/// - Tap interaction
+/// - Danger mode (for destructive actions like Reset)
+///
+/// Design Goals:
+/// - Clean Material UI
+/// - Consistent spacing
+/// - Good accessibility
+/// - Lightweight & reusable
+/// ============================================================================
+
 class SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -20,50 +38,75 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color? color = isDanger ? Colors.red : null;
+    /// Resolve colors based on state
+    final Color textColor =
+        isDanger ? Colors.red : Theme.of(context).textTheme.bodyLarge!.color!;
+
+    final Color iconColor =
+        isDanger ? Colors.red : Theme.of(context).iconTheme.color!;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 3,
+      elevation: 2, // lighter shadow for modern UI
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 6,
-        ),
-
-        leading: Icon(
-          icon,
-          color: color,
-        ),
-
-        title: Text(
-          title,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: color,
-          ),
-        ),
-
-        subtitle: subtitle != null
-            ? Text(
-                subtitle!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13),
-              )
-            : null,
-
-        trailing: trailing,
-
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              /// ================= ICON =================
+              Icon(
+                icon,
+                color: iconColor,
+              ),
 
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+              const SizedBox(width: 16),
+
+              /// ================= TEXT CONTENT =================
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    /// TITLE
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+
+                    /// SUBTITLE (optional)
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              /// ================= TRAILING =================
+              if (trailing != null) ...[
+                trailing!,
+              ],            
+            ],
+          ),
         ),
       ),
     );

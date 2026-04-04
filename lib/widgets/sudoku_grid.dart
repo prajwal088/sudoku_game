@@ -3,13 +3,23 @@ import '../models/sudoku_board.dart';
 import 'sudoku_cell.dart';
 import '../logic/sudoku_validator.dart';
 
-/// A widget that renders a complete 9x9 Sudoku grid.
+/// ============================================================================
+/// SudokuGrid
+/// ----------------------------------------------------------------------------
+/// Renders a 9x9 Sudoku grid using GridView.
 ///
 /// Responsibilities:
-/// - Display numbers from the board
-/// - Highlight selected row, column, and subgrid
-/// - Indicate invalid (wrong) entries
-/// - Handle user interaction (cell taps)
+/// - Display all 81 cells
+/// - Handle selection state
+/// - Highlight row, column, and 3x3 box
+/// - Show validation errors (wrong inputs)
+/// - Render proper Sudoku borders (3x3 thick lines)
+///
+/// Performance Considerations:
+/// - Stateless (fast rebuilds)
+/// - Uses GridView.builder (lazy rendering)
+/// - Minimal per-cell computation
+/// ============================================================================
 
 class SudokuGrid extends StatelessWidget {
   /// Constants for grid dimensions
@@ -23,25 +33,26 @@ class SudokuGrid extends StatelessWidget {
   /// Currently selected cell position (-1 means none)
   final int selectedRow;
   final int selectedCol;
-
-  /// Callback when a cell is tapped
-  final Function(int row, int col) onCellTap;
+  final Set<String> hintedCells;
+  final Function(int, int) onCellTap;
 
   const SudokuGrid({
     super.key,
     required this.board,
     required this.selectedRow,
     required this.selectedCol,
+    required this.hintedCells,
     required this.onCellTap,
   });
 
-  /// Determines whether a cell should be highlighted.
-  ///
+  /// ==========================================================================
+  /// HIGHLIGHT LOGIC
+  /// ==========================================================================
   /// Highlights:
   /// - Same row
   /// - Same column
-  /// - Same 3x3 subgrid
-  bool isHighlighted(int row, int col) {
+  /// - Same 3x3 box
+  bool _isHighlighted(int row, int col) {
     if (selectedRow == -1 || selectedCol == -1) return false;
 
     final sameRow = row == selectedRow;
@@ -54,64 +65,73 @@ class SudokuGrid extends StatelessWidget {
     return sameRow || sameCol || sameSubGrid;
   }
 
+  /// ==========================================================================
+  /// VALIDATION (SAFE CHECK)
+  /// ==========================================================================
+  /// Ensures current cell value is valid without self-conflict
+  bool _isWrongCell(int row, int col, int value) {
+    if (value == 0 || board.fixed[row][col]) return false;
+
+// Use the validator with the excludeSelf flag for a clean check
+    return !SudokuValidator.isValidMove(
+      board.board, 
+      row, 
+      col, 
+      value, 
+      excludeSelf: true
+    );
+  }
+
+  /// ==========================================================================
+  /// BUILD
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
-      aspectRatio: 1, // Keep grid perfectly square
-      child: GridView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: totalCells,
-
-        /// Defines a 9-column grid
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: gridSize,
+      aspectRatio: 1, // Perfect square grid
+      child: Container(
+        // Outer thick border for the entire grid
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black, width: 2),
         ),
-        itemBuilder: (context, index) {
-          /// Convert 1D index into 2D row/column
-          final row = index ~/ gridSize;
-          final col = index % gridSize;
+        child: GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 81,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 9,
+          ),
+          itemBuilder: (context, index) {
+            final int row = index ~/ 9;
+            final int col = index % 9;
 
-          /// Extract cell value
-          final value = board.board[row][col];
+            final int value = board.board[row][col];
 
-          /// Determine if the current value is invalid
-          bool isWrong  = false;
-          if (value != 0) {
-            isWrong  =
-                !SudokuValidator.isValidMove(board.board, row, col, value);
-          }
-
-          /// UI states
-          final isCellHighlighted = isHighlighted(row, col);
-          final isSelected = row == selectedRow && col == selectedCol;
-
-          /// Build cell border (thicker for 3x3 grid separation)
-          BorderSide borderSide(bool condition) => BorderSide(
-                width: condition ? 2.0 : 0.5,
-                color: Colors.black,
-              );
-          
-          return Container(
-            decoration: BoxDecoration(
-              border: Border(
-                top: borderSide(row % subGridSize == 0),
-                left: borderSide(col % subGridSize == 0),
-                right: borderSide((col + 1) % subGridSize == 0),
-                bottom: borderSide((row + 1) % subGridSize == 0),
+            return Container(
+              decoration: _buildCellBoxDecoration(row, col), // Extracted for clarity
+              child: SudokuCell(
+                number: value,
+                fixed: board.fixed[row][col],
+                isHinted: hintedCells.contains("$row-$col"),
+                selected: row == selectedRow && col == selectedCol,
+                highlighted: _isHighlighted(row, col),
+                isWrong: _isWrongCell(row, col, value), // Using the helper here
+                onTap: () => onCellTap(row, col),
               ),
-            ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-            /// Individual Sudoku cell widget
-            child: SudokuCell(
-              number: value,
-              fixed: board.fixed[row][col],
-              selected: isSelected,
-              highlighted: isCellHighlighted,
-              isWrong: isWrong,
-              onTap: () => onCellTap(row, col),
-            ),
-          );
-        },
+/// Helper to keep the itemBuilder clean of border math
+  BoxDecoration _buildCellBoxDecoration(int row, int col) {
+    return BoxDecoration(
+      border: Border(
+        top: BorderSide(width: row % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        left: BorderSide(width: col % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        right: BorderSide(width: (col + 1) % 3 == 0 ? 2 : 0.5, color: Colors.black),
+        bottom: BorderSide(width: (row + 1) % 3 == 0 ? 2 : 0.5, color: Colors.black),
       ),
     );
   }
