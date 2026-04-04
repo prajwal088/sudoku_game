@@ -2,11 +2,30 @@ import 'package:flutter/material.dart';
 
 import '../models/level.dart';
 import '../services/level_service.dart';
-import 'game_screen.dart';
-import '../widgets/level_tile.dart';
+import '../services/progress_service.dart';
+import '../widgets/enhanced_level_tile.dart';
+
+import 'dart:async';
+
+/// ============================================================================
+/// LevelMapScreen
+/// ----------------------------------------------------------------------------
+/// Displays levels inside a selected world.
+/// Responsibilities:
+/// - Render level grid
+/// - Handle level locking/unlocking
+/// - Navigate to GameScreen
+/// - Highlight current playable level
+///
+/// Architecture:
+/// - ProgressService → Source of truth (global level)
+/// - LevelService → Provides level data
+/// ============================================================================
 
 class LevelMapScreen extends StatefulWidget {
-  const LevelMapScreen({super.key});
+  final int world;
+
+  const LevelMapScreen({super.key, required this.world});
 
   @override
   State<LevelMapScreen> createState() => _LevelMapScreenState();
@@ -14,136 +33,175 @@ class LevelMapScreen extends StatefulWidget {
 
 class _LevelMapScreenState extends State<LevelMapScreen> {
 
+  StreamSubscription? _progressSubscription;
+
   final LevelService _levelService = LevelService();
+  final ProgressService progressService = ProgressService();
 
   List<Level> levels = [];
+  bool isLoading = true;
 
-  bool loading = true;
+  int currentGlobalLevel = 1;
 
   final ScrollController _scrollController = ScrollController();
 
-  @override
-void dispose() {
-  _scrollController.dispose();
-  super.dispose();
-}
+  static const int itemsPerRow = 5;
+  static const double itemHeight = 80;
 
   @override
   void initState() {
     super.initState();
-    loadLevels();
+    _loadProgress();
+
+      _progressSubscription = progressService.onProgressUpdate.listen((_) {
+      if (mounted) {
+        debugPrint("Home Screen detected progress update! Refreshing...");
+        _loadProgress();
+      }
+    });
   }
 
-  Future<void> loadLevels() async {
+  /// ==========================================================================
+  /// LOAD LEVELS + PROGRESS
+  /// ==========================================================================
+  Future<void> _loadProgress() async {
+    final loadedLevels =
+        await _levelService.getLevelsByWorld(widget.world);
 
-    List<Level> loadedLevels =
-        await _levelService.getVisibleLevels();
+    final globalLevel =
+        await progressService.getNextUnlockedLevel();
 
-         if (!mounted) return;
+    if (!mounted) return;
 
     setState(() {
       levels = loadedLevels;
-      loading = false;
+      currentGlobalLevel = globalLevel;
+      isLoading = false;
+    });
+
+    /// Scroll after UI is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToCurrentLevel();
     });
   }
 
-  void openLevel(Level level) {
+  /// ==========================================================================
+  /// LOCK LOGIC (GLOBAL SOURCE OF TRUTH)
+  /// ==========================================================================
+  /// Helper to determine the state for the EnhancedLevelTile
+  /// Determines tile state based on Global Level ID
+    LevelTileState _getTileState(Level level) {
+      if (level.levelNumber > currentGlobalLevel) {
+        return LevelTileState.locked;
+      } else if (level.levelNumber < currentGlobalLevel) {
+        return LevelTileState.completed;
+      } else {
+        return LevelTileState.inProgress;
+      }
+    }
 
-    if (level.isLocked) {
+  /// ==========================================================================
+  /// AUTO SCROLL TO CURRENT LEVEL
+  /// ==========================================================================
+  void _scrollToCurrentLevel() {
+    if (levels.isEmpty || !_scrollController.hasClients) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Complete previous level to unlock"),
-        ),
+    // Find the current level within the current world list
+    int indexInList = levels.indexWhere((l) => l.levelNumber == currentGlobalLevel);
+    if (indexInList == -1) return; // Current level is in a different world
+
+    int row = indexInList ~/ itemsPerRow;
+    double offset = (row * itemHeight).clamp(0, _scrollController.position.maxScrollExtent);
+
+    /// Prevent overscroll
+    if (_scrollController.hasClients) {
+      offset = offset.clamp(
+        0,
+        _scrollController.position.maxScrollExtent,
       );
 
+      _scrollController.animateTo(
+        offset,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  /// ==========================================================================
+  /// NAVIGATION
+  /// ==========================================================================
+  Future<void> _openLevel(Level level) async {
+    if (level.levelNumber > currentGlobalLevel) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Complete previous levels first!")),
+      );
       return;
     }
 
-    Navigator.push(
+    await Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (_) => GameScreen(
-          levelNumber: level.levelNumber,
-        ),
-      ),
-    ).then((_) {
-      loadLevels(); // refresh map after gameplay
-    });
-  }
-
-  /// fallback stars builder (used if LevelTile doesn't render stars)
-  Widget buildStars(int stars) {
-
-    List<Widget> starWidgets = [];
-
-    for (int i = 1; i <= 3; i++) {
-
-      starWidgets.add(
-        Icon(
-          i <= stars ? Icons.star : Icons.star_border,
-          size: 14,
-          color: Colors.orange,
-        ),
-      );
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: starWidgets,
+      "/game",
+      arguments: {
+        "levelNumber": level.levelNumber, // THE GLOBAL ID
+        "world": widget.world,
+      },
     );
+    if (mounted) {
+      debugPrint("Returning from game, refreshing level map...");
+      _loadProgress(); // This refreshes your stars and locks!
+    }
   }
 
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
   @override
   Widget build(BuildContext context) {
-
-    if (loading) {
+    if (isLoading) {
       return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-
       appBar: AppBar(
-        title: const Text("Sudoku Levels"),
-        centerTitle: true,
+        title: Text("World ${widget.world}"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadProgress,
+          )
+        ],
       ),
-
-      body: Padding(
-
-        padding: const EdgeInsets.all(12),
-
-        child: GridView.builder(
-
-          controller: _scrollController,
-
-          itemCount: levels.length,
-
-          gridDelegate:
-              const SliverGridDelegateWithFixedCrossAxisCount(
-
-            crossAxisCount: 5,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-
-          ),
-
-          itemBuilder: (context, index) {
-
-            Level level = levels[index];
-
-          return LevelTile(
-
-            level: level,
-            onTap: () => openLevel(level),
-
-          );
-          },
+      body: GridView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(16),
+        itemCount: levels.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: itemsPerRow,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          mainAxisExtent: itemHeight,
         ),
+        itemBuilder: (context, index) {
+          final level = levels[index];
+          return EnhancedLevelTile(
+            // Show the LOCAL number (1-25) on the tile for the user
+            levelNumber: level.levelNumber,
+            state: _getTileState(level),
+            stars: level.stars,
+            onTap: () => _openLevel(level),
+          );
+        },
       ),
     );
+  }
+  
+  @override
+  void dispose() {
+    _progressSubscription?.cancel();
+    _scrollController.dispose();
+    super.dispose();
   }
 }

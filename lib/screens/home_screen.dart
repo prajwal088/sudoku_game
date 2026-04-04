@@ -1,199 +1,256 @@
 import 'package:flutter/material.dart';
 
 import '../services/progress_service.dart';
+import 'world_map_screen.dart';
+import 'dart:async';
+
+/// ============================================================================
+/// HomeScreen
+/// ----------------------------------------------------------------------------
+/// Entry point of the game UI.
+/// Responsibilities:
+/// - Show Continue button (next playable level)
+/// - Navigate to GameScreen using correct world + level mapping
+/// - Navigate to World Map
+/// - Display basic UI & animations
+/// ============================================================================
 
 class HomeScreen extends StatefulWidget {
-const HomeScreen({super.key});
+  const HomeScreen({super.key});
 
-@override
-State<HomeScreen> createState() => _HomeScreenState();
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen>
-with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
 
-final ProgressService progressService = ProgressService();
+  // Define the subscription variable
+  StreamSubscription? _progressSubscription;
 
-late AnimationController controller;
-late Animation<double> scaleAnimation;
+  /// Service layer (handles all progression logic)
+  final ProgressService progressService = ProgressService();
 
-int nextLevel = 1;
+  /// Animation controller for Continue button
+  late AnimationController controller;
+  late Animation<double> scaleAnimation;
 
-@override
-void initState() {
-super.initState();
+  /// Stores NEXT playable GLOBAL level
+  int nextLevel = 1;
 
-loadProgress();
+  @override
+  void initState() {
+    super.initState();
 
-controller = AnimationController(
-  vsync: this,
-  duration: const Duration(milliseconds: 800),
-);
+    _loadProgress();
 
-scaleAnimation = Tween<double>(
-  begin: 0.9,
-  end: 1,
-).animate(
-  CurvedAnimation(
-    parent: controller,
-    curve: Curves.easeInOut,
-  ),
-);
-
-controller.repeat(reverse: true);
-
-}
-
-Future<void> loadProgress() async {
-
-  int level = await progressService.getNextUnlockedLevel();
-
-  if (!mounted) return;
-
-  setState(() {
-    nextLevel = level;
+    // 🎧 Start listening for updates
+  _progressSubscription = progressService.onProgressUpdate.listen((_) {
+    if (mounted) {
+      debugPrint("Home Screen detected progress update! Refreshing...");
+      _loadProgress();
+    }
   });
-}
 
-@override
-void dispose() {
-controller.dispose();
-super.dispose();
-}
+    /// Initialize animation
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
 
-void startNextLevel() async {
+    scaleAnimation = Tween<double>(
+      begin: 0.9,
+      end: 1,
+    ).animate(
+      CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeInOut,
+      ),
+    );
 
-await Navigator.pushNamed(
-  context,
-  "/game",
-  arguments: nextLevel,
-);
+    controller.repeat(reverse: true);
+  }
 
-// Reload progress when coming back
-await loadProgress();
-}
+  /// ==========================================================================
+  /// LOAD USER PROGRESS
+  /// ==========================================================================
+  Future<void> _loadProgress() async {
+    int level = await progressService.getNextUnlockedLevel();
 
-void openLevelMap() async {
+    if (!mounted) return;
 
-await Navigator.pushNamed(
-  context,
-  "/levels",
-);
+    setState(() {
+      nextLevel = level;
+    });
+  }
 
-await loadProgress();
-}
+  @override
+  void dispose() {
+    _progressSubscription?.cancel();  // Stop listening to prevent memory leaks
+    controller.dispose();
+    super.dispose();
+  }
 
-@override
-Widget build(BuildContext context) {
+  /// ==========================================================================
+  /// CONTINUE BUTTON HANDLER (PRODUCTION SAFE)
+  /// ==========================================================================
+  Future<void> _handleContinue() async {
+    /// Step 1: Get next unlocked GLOBAL level
+    int globalLevel = await progressService.getNextUnlockedLevel();
 
-return Scaffold(
+    if (!mounted) return;
 
-  body: SafeArea(
-    child: Center(
-      child: Column(
+    /// Safety guard (prevents invalid navigation)
+    if (globalLevel < 1) return;
 
-        mainAxisAlignment: MainAxisAlignment.center,
+    /// Step 2: Convert → world + level using SERVICE (single source of truth)
+    final data = progressService.getWorldAndLevel(globalLevel);
 
-        children: [
+    int world = data["world"]!;
 
-          /// GAME ICON
-          const Icon(
-            Icons.grid_on,
-            size: 120,
-            color: Colors.blue,
-          ),
+/*
+    /// Debug log (remove in release if needed)
+    // ignore: avoid_print
+    print("Continue → Global: $globalLevel | World: $world | Level: $level");
+*/
 
-          const SizedBox(height: 10),
+    /// Step 3: Navigate to GameScreen
+    await Navigator.pushNamed(
+      context,
+      "/game",
+      arguments: {
+        "levelNumber": globalLevel,   // Send the unique Global ID (1-250)
+        "world": world,   // World number
+      },
+    );
 
-          /// TITLE
-          const Text(
-            "Sudoku",
-            style: TextStyle(
-              fontSize: 40,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+    /// Step 4: Reload progress after returning
+    if (mounted) {
+      debugPrint("Returned to Home. Re-loading progress...");
+      await _loadProgress();
+    }
+  }
 
-          const SizedBox(height: 40),
+  /// ==========================================================================
+  /// OPEN WORLD MAP
+  /// ==========================================================================
+  Future<void> _openLevelMap() async {
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const WorldMapScreen(),
+      ),
+    );
 
-          /// CONTINUE BUTTON
-          /// Issue : alway shows level 1 and does not shows next level or go to next level when user has progressed.
-          ScaleTransition(
-            scale: scaleAnimation,
-            child: ElevatedButton(
-              onPressed: startNextLevel,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 70,
-                  vertical: 16,
-                ),
-              ),
-              child: Text(
-                "Continue (Level $nextLevel)",
-                style: const TextStyle(fontSize: 18),
-              ),
-            ),
-          ),
+    if (mounted) {
+      await _loadProgress();
+    }
+  }
 
-          const SizedBox(height: 15),
-
-          /// PLAY BUTTON
-          OutlinedButton(
-            onPressed: openLevelMap,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 80,
-                vertical: 16,
-              ),
-            ),
-            child: const Text(
-              "Play",
-              style: TextStyle(fontSize: 18),
-            ),
-          ),
-
-          const SizedBox(height: 30),
-
-          /// EXTRA OPTIONS
-          Row(
+  /// ==========================================================================
+  /// UI
+  /// ==========================================================================
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-// Todo add screen to show stats of the played levels.
-              IconButton(
-                icon: const Icon(Icons.bar_chart, size: 28),
-                onPressed: () {
-                  Navigator.pushNamed(context, "/stats");
-                },
+              /// GAME ICON
+              const Icon(
+                Icons.grid_on,
+                size: 120,
+                color: Colors.blue,
               ),
 
-              const SizedBox(width: 20),
+              const SizedBox(height: 10),
 
-// Todo add screen and neccessary button for settings
-
-              IconButton(
-                icon: const Icon(Icons.settings, size: 28),
-                onPressed: () {
-                  Navigator.pushNamed(context, "/settings");
-                },
+              /// TITLE
+              const Text(
+                "Sudoku",
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
 
+              const SizedBox(height: 40),
+
+              /// CONTINUE BUTTON
+              ScaleTransition(
+                scale: scaleAnimation,
+                child: ElevatedButton(
+                  onPressed: _handleContinue,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 70,
+                      vertical: 16,
+                    ),
+                  ),
+                  child: Text(
+                    "Continue (Level $nextLevel)", // shows GLOBAL level
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 15),
+
+              /// PLAY BUTTON (opens world map)
+              OutlinedButton(
+                onPressed: _openLevelMap,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 80,
+                    vertical: 16,
+                  ),
+                ),
+                child: const Text(
+                  "Play",
+                  style: TextStyle(fontSize: 18),
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              /// EXTRA OPTIONS
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.bar_chart, size: 28),
+                    onPressed: () {
+                      Navigator.pushNamed(context, "/statistics");
+                    },
+                  ),
+
+                  const SizedBox(width: 20),
+
+                  IconButton(
+                    icon: const Icon(Icons.settings, size: 28),
+                    onPressed: () {
+                      Navigator.pushNamed(context, "/settings");
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              /// FOOTER
+              const Text(
+                "Solve puzzles. Train your brain.",
+                style: TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
             ],
           ),
-
-          const SizedBox(height: 20),
-
-          /// FOOTER
-          const Text(
-            "Solve puzzles. Train your brain.",
-            style: TextStyle(
-              color: Colors.grey,
-            ),
-          ),
-
-        ],
+        ),
       ),
-    ),
-  ),
-);
-}
+    );
+  }
 }
