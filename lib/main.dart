@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'firebase_options.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_core/firebase_core.dart';
+
 import 'core/theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/game_screen.dart';
@@ -26,6 +30,11 @@ class GameArguments {
 Future<void> main() async {
   // Ensure Flutter engine is ready for platform calls
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase using the specific options for the current platform
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   // Professional Touch: Lock orientation to Portrait
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -75,6 +84,10 @@ class SudokuApp extends StatelessWidget {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
+  // Define the observer here so it's easy to reference
+  static FirebaseAnalytics analytics = FirebaseAnalytics.instance;
+  static FirebaseAnalyticsObserver observer = FirebaseAnalyticsObserver(analytics: analytics);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -84,6 +97,8 @@ class SudokuApp extends StatelessWidget {
 
       /// Global navigation access
       navigatorKey: navigatorKey,
+
+      navigatorObservers: [observer],
 
       /// Initial route
       initialRoute: AppRoutes.home,

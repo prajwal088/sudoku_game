@@ -14,6 +14,8 @@ import '../logic/sudoku_validator.dart';
 
 import 'win_screen.dart';
 
+import '../services/analytics_service.dart';
+
 /// ============================================================================
 /// GameScreen
 /// ----------------------------------------------------------------------------
@@ -72,6 +74,8 @@ class _GameScreenState extends State<GameScreen>
   @override
   void initState() {
     super.initState();
+    // Log that the player started the level
+    AnalyticsService.logGameStart(widget.world, widget.levelNumber);
     WidgetsBinding.instance.addObserver(this);
     _loadLevel();
   }
@@ -189,6 +193,8 @@ class _GameScreenState extends State<GameScreen>
       selectedRow = r;
       selectedCol = c;
     });
+
+    AnalyticsService.logHintUsed(widget.world, widget.levelNumber);
 
     _checkWin();
   }
