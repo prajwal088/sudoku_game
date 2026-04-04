@@ -32,7 +32,7 @@ class Level {
   Map<String, dynamic> toMap() {
     return {
       'levelNumber': levelNumber,
-      'world': world, // ✅ FIXED
+      'world': world,
       'difficulty': difficulty,
       'targetTime': targetTime,
       'isLocked': isLocked,
@@ -48,7 +48,7 @@ class Level {
   factory Level.fromMap(Map<String, dynamic> map) {
     return Level(
       levelNumber: map['levelNumber'],
-      world: map['world'] ?? 1, // ✅ FIXED (fallback for old data)
+      world: map['world'] ?? 1,
       difficulty: map['difficulty'],
       targetTime: map['targetTime'],
       isLocked: map['isLocked'],
