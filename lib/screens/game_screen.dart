@@ -147,7 +147,8 @@ class _GameScreenState extends State<GameScreen>
     int targetCol = -1;
 
     // Strategy 1: If user has a cell selected and it's empty/wrong, hint that one.
-    if (_isValidSelection() && 
+    if (_isValidSelection() &&
+        !hintedCells.contains("$selectedRow-$selectedCol") &&
         (board.board[selectedRow][selectedCol] == 0 || 
          board.board[selectedRow][selectedCol] != board.solution[selectedRow][selectedCol])) {
       targetRow = selectedRow;
@@ -328,9 +329,13 @@ class _GameScreenState extends State<GameScreen>
               onUndo: undoMove,
               onHint: giveHint,
               onErase: () {
-                if (_isValidSelection() && !hintedCells.contains("$selectedRow-$selectedCol")) {
+                if (_isValidSelection()) {
                   _saveHistory();
-                  setState(() => board.clearCell(selectedRow, selectedCol));
+                  setState(() {
+                    board.clearCell(selectedRow, selectedCol);
+                    // Remove from hintedCells so it's no longer "protected" or "marked"
+                    hintedCells.remove("$selectedRow-$selectedCol"); 
+                  });
                 }
               },
             ),
