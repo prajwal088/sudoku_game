@@ -163,7 +163,6 @@ class _GameScreenState extends State<GameScreen>
             candidates.add({"r": r, "c": c});
           }
         }
-      }
 
       if (candidates.isEmpty) {
         _showToast("Board is already correct!");
@@ -196,6 +195,7 @@ class _GameScreenState extends State<GameScreen>
   // INPUT HANDLERS
   // ==========================================================================
 
+  /// Handles user input into the selected cell
   void inputNumber(int number) {
     if (!_isValidSelection()) return;
     
@@ -207,6 +207,7 @@ class _GameScreenState extends State<GameScreen>
     _checkWin();
   }
 
+  /// Reverts the last move made by the player
   void undoMove() {
     if (history.isEmpty) return;
     final last = history.removeLast();
@@ -283,6 +284,9 @@ class _GameScreenState extends State<GameScreen>
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
+    /// STEP 2: Main UI Scaffold
+    /// Scaffold provides the basic visual layout structure
+    /// like AppBar, body, etc.
     return Scaffold(
       appBar: AppBar(
         title: Text("World ${widget.world} - Level ${widget.levelNumber}"),
@@ -309,7 +313,9 @@ class _GameScreenState extends State<GameScreen>
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: SudokuGrid(
-                board: board,
+                board: board, // 2D array representing Sudoku values
+
+                /// Currently selected cell position
                 selectedRow: selectedRow,
                 selectedCol: selectedCol,
                 hintedCells: hintedCells,
@@ -325,7 +331,11 @@ class _GameScreenState extends State<GameScreen>
 
             NumberPad(
               onNumberSelected: inputNumber,
+
+              /// Undo last move
               onUndo: undoMove,
+
+              /// Provide hint to user
               onHint: giveHint,
               onErase: () {
                 if (_isValidSelection() && !hintedCells.contains("$selectedRow-$selectedCol")) {
