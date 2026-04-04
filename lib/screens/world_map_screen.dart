@@ -57,26 +57,26 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   /// LOAD PROGRESS (UPDATED & FIXED)
   /// ==========================================================================
   Future<void> _loadProgress() async {
+  // Prevent multiple simultaneous loads
   if (_isLoading) return;
 
   setState(() {
     _isLoading = true;
+    // Only show full-screen loader if we have no data yet
     if (worldStars.isEmpty) loading = true;
   });
 
   try {
-    // 1. Fetch the unlocked world level
-    final int unlockedWorld = await _progressService.getHighestUnlockedWorld();
+      // 1. Run both heavy data fetches in parallel using Future.wait
+      // This performs ONE disk read and ONE JSON decode for everything.
+      final results = await Future.wait([
+        _progressService.getHighestUnlockedWorld(),
+        _progressService.getAllWorldStars(totalWorlds),
+      ]);
 
-    // 2. Fetch all stars in parallel (keeping types clean)
-    final List<int> starCounts = await Future.wait(
-      List.generate(totalWorlds, (i) => _progressService.getStarsForWorld(i + 1))
-    );
-
-    // 3. Map results
-    final Map<int, int> tempStarsMap = {
-      for (int i = 0; i < starCounts.length; i++) i + 1: starCounts[i]
-    };
+      // 2. Extract results with type safety
+      final int unlockedWorld = results[0] as int;
+      final Map<int, int> tempStarsMap = results[1] as Map<int, int>;
 
     if (!mounted) return;
 
