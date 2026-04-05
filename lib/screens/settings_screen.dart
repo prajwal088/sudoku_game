@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/user_service.dart';
 import '../services/progress_service.dart';
+import '../services/analytics_service.dart';
 import '../widgets/settings_tile.dart';
 
 /// ============================================================================
@@ -42,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logEvent(name: 'settings_view'); // Track view
     _initialize();
   }
 
@@ -153,6 +155,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                     await userService.saveUserName(name);
 
+                    // Track: Name update success
+                    AnalyticsService.logEvent(name: 'user_update_name');
+
                     if (!mounted) return;
 
                     setState(() {
@@ -175,8 +180,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// ==========================================================================
   /// OPEN EXTERNAL LINK (SAFE)
   /// ==========================================================================
-  Future<void> openLink(String url) async {
+  Future<void> openLink(String url, String linkName) async {
     try {
+
+      // Track: External link navigation
+      AnalyticsService.logEvent(
+        name: 'settings_link_click',
+        parameters: {'link_target': linkName},
+      );
+
       final uri = Uri.parse(url);
 
       final success = await launchUrl(
@@ -216,6 +228,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () async {
               await progressService.resetProgress();
+
+              // Track: Critical user action
+              AnalyticsService.logEvent(name: 'user_reset_all_progress');
 
               if (!mounted) return;
 
@@ -275,13 +290,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: IconButton(
                     icon: const Icon(Icons.copy),
                     onPressed: () {
-                      Clipboard.setData(
-                          ClipboardData(text: userId));
-
+                      Clipboard.setData(ClipboardData(text: userId));
+                      AnalyticsService.logEvent(name: 'user_copy_id');
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("User ID copied"),
-                        ),
+                        const SnackBar(content: Text("User ID copied")),
                       );
                     },
                   ),
@@ -312,7 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     IconButton(
                       icon: const Icon(Icons.public),
                       onPressed: () =>
-                          openLink("https://your-site.com"),
+                          openLink("https://your-site.com", "public website"),
                     ),
                     IconButton(
                       icon: const Icon(Icons.share),
@@ -342,7 +354,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     InkWell(
                       onTap: () =>
-                          openLink("https://privacy.com"),
+                          openLink("https://privacy.com", "Privacy Policy"),
                       child: const Text(
                         "Privacy Policy",
                         style: TextStyle(
@@ -353,7 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(" • "),
                     InkWell(
                       onTap: () =>
-                          openLink("https://terms.com"),
+                          openLink("https://terms.com", "Terms & Conditions"),
                       child: const Text(
                         "Terms & Conditions",
                         style: TextStyle(

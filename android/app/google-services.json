@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1095271235921",
+    "project_id": "sudoku-game-4c36a",
+    "storage_bucket": "sudoku-game-4c36a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1095271235921:android:dc75d8d5b0e4b9ddaf9370",
+        "android_client_info": {
+          "package_name": "com.prajwal.darekar.sudoku08"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAaf9bk2byeLWBPORDDZxJgpZnv_pT3WL8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1095271235921:android:4746fc79ba259e26af9370",
+        "android_client_info": {
+          "package_name": "com.prajwaldarekar.sudoku08"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAaf9bk2byeLWBPORDDZxJgpZnv_pT3WL8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/progress_service.dart';
+import '../services/analytics_service.dart';
 import '../widgets/statistics_card.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -16,14 +17,38 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Track: User is looking at their achievements
+    AnalyticsService.logEvent(name: 'statistics_view');
+
     _loadStats();
   }
 
   Future<void> _loadStats() async {
+    try {
     final data = await _progressService.getGlobalStats();
+
+    if (!mounted) return;
+
     setState(() {
       _stats = data;
     });
+
+      // Track: Send a snapshot of lifetime stats to Firebase
+      // Using logEvent with Map<String, Object> for type safety
+      AnalyticsService.logEvent(
+        name: 'statistics_snapshot',
+        parameters: {
+          'total_levels': data["totalLevels"] ?? 0,
+          'total_stars': data["totalStars"] ?? 0,
+          'completion_percent': (data["completionPercent"] ?? 0.0).toDouble(),
+          'total_time_seconds': data["totalTime"] ?? 0,
+        },
+      );
+    } catch (e) {
+      debugPrint("Statistics Load Error: $e");
+      AnalyticsService.logError("stats_load_fail", e.toString());
+    }
   }
 
   String _formatTime(int seconds) {

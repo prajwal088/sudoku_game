@@ -6,6 +6,7 @@ import '../services/progress_service.dart';
 import '../widgets/enhanced_level_tile.dart';
 
 import 'dart:async';
+import '../services/analytics_service.dart';
 
 /// ============================================================================
 /// LevelMapScreen
@@ -51,6 +52,10 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Track: Which world is the user viewing?
+    AnalyticsService.logWorldView(widget.world);
+
     _loadProgress();
 
       _progressSubscription = progressService.onProgressUpdate.listen((_) {
@@ -132,12 +137,25 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// NAVIGATION
   /// ==========================================================================
   Future<void> _openLevel(Level level) async {
-    if (level.levelNumber > currentGlobalLevel) {
+    final bool isLocked = level.levelNumber > currentGlobalLevel;
+
+    if (isLocked) {
+      // Track: Interaction with locked content
+      AnalyticsService.logLockedLevelClick(widget.world, level.levelNumber);
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Complete previous levels first!")),
       );
       return;
     }
+
+    // Determine if this is a replay for analytics
+    bool isReplay = level.levelNumber < currentGlobalLevel;
+    AnalyticsService.logLevelSelect(
+      world: widget.world, 
+      level: level.levelNumber, 
+      isReplay: isReplay,
+    );
 
     await Navigator.pushNamed(
       context,
@@ -171,7 +189,13 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadProgress,
+            onPressed: () {
+
+              // Track: Manual refresh (might indicate UI sync issues)
+              AnalyticsService.logEvent(name: 'map_manual_refresh');
+              
+              _loadProgress();
+            },
           )
         ],
       ),

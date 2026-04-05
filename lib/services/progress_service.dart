@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'analytics_service.dart';
 
 /// ============================================================================
 /// ProgressService
@@ -53,6 +55,7 @@ class ProgressService {
   /// LOAD PROGRESS (WITH STRONG TYPE SAFETY)
   /// ==========================================================================
   Future<Map<String, dynamic>> loadProgress() async {
+    try {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(_progressKey);
 
@@ -68,15 +71,26 @@ class ProgressService {
     progress["completedLevels"] = List<int>.from(progress["completedLevels"] ?? []);
     progress["bestTimes"] = Map<String, int>.from(progress["bestTimes"] ?? {});
     progress["stars"] = Map<String, int>.from(progress["stars"] ?? {});
+
     return progress;
+
+    } catch (e) {
+      // Track: Data corruption or read errors
+      AnalyticsService.logError("progress_load_error", e.toString());
+      return _defaultProgress();
+    }
   }
 
   /// ==========================================================================
   /// SAVE PROGRESS
   /// ==========================================================================
   Future<void> saveProgress(Map<String, dynamic> progress) async {
+    try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_progressKey, jsonEncode(progress));
+    } catch (e) {
+      AnalyticsService.logError("progress_save_error", e.toString());
+    }
   }
 
   /// ==========================================================================
@@ -125,6 +139,7 @@ class ProgressService {
 
     // ✅ PROFESSIONAL APPROACH: Use Sets for O(1) lookup performance
     Set<int> completed = Set<int>.from(progress["completedLevels"]);
+    bool firstTimeCompletion = !completed.contains(globalLevel);
     Map<String, int> bestTimes = Map<String, int>.from(progress["bestTimes"]);
     Map<String, int> starsMap = Map<String, int>.from(progress["stars"]);
 
@@ -156,6 +171,12 @@ if (localLevel == levelsPerWorld) {
 
       if (progress["highestUnlockedWorld"] <= worldOfCompletedLevel) {
         progress["highestUnlockedWorld"] = worldOfCompletedLevel + 1;
+
+        // Track: Milestone - World Unlocked
+        AnalyticsService.logEvent(
+          name: 'world_unlocked',
+          parameters: {'unlocked_world_id': worldOfCompletedLevel + 1},
+        );
       }
     }
 
@@ -164,6 +185,18 @@ if (localLevel == levelsPerWorld) {
     progress["stars"] = starsMap;
 
     await saveProgress(progress);
+
+    // Track: Level Success Outcome
+    AnalyticsService.logEvent(
+      name: 'level_completed',
+      parameters: {
+        'level_id': globalLevel,
+        'world_id': worldOfCompletedLevel,
+        'stars': stars,
+        'time_seconds': timeInSeconds,
+        'is_first_completion': firstTimeCompletion ? 1 : 0,
+      },
+    );
 
     // Tell everyone listening that data has changed!
     _progressUpdateController.add(null);
@@ -266,12 +299,21 @@ if (localLevel == levelsPerWorld) {
 }
 
   Future<void> resetProgress() async {
+    try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_progressKey);
+
+    // We don't log 'user_reset_all_progress' here because the Screen does it,
+      // but we log a system-level confirmation for debug audits.
+      debugPrint("System: Progress data wiped successfully.");
+    } catch (e) {
+      AnalyticsService.logError("reset_service_failure", e.toString());
+    }
   }
 
   // Dispose for the stream
   void dispose() {
     _worldCompletionController.close();
+    _progressUpdateController.close();
   }
 }

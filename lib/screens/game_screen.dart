@@ -14,6 +14,8 @@ import '../logic/sudoku_validator.dart';
 
 import 'win_screen.dart';
 
+import '../services/analytics_service.dart';
+
 /// ============================================================================
 /// GameScreen
 /// ----------------------------------------------------------------------------
@@ -66,18 +68,36 @@ class _GameScreenState extends State<GameScreen>
   /// bool _isRunning = false;
   bool _isLoading = true;
 
+  // For high-accuracy analytics tracking
+  late DateTime _levelStartTime;
+
   /// Lifecycle
   DateTime? pausedAt;
 
   @override
   void initState() {
     super.initState();
+    _levelStartTime = DateTime.now();
+
+    // Log that the player started the level
+    AnalyticsService.logGameStart(widget.world, widget.levelNumber);
     WidgetsBinding.instance.addObserver(this);
     _loadLevel();
   }
 
   @override
   void dispose() {
+
+    // Track: Did they leave without finishing? 
+    // This helps identify "frustration exits"
+    if (_isLoading == false && !SudokuValidator.isBoardComplete(board.board)) {
+      AnalyticsService.logLevelAbandoned(
+        world: widget.world,
+        level: widget.levelNumber,
+        secondsPlayed: _secondsElapsed,
+      );
+    }
+
     _stopTimer();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -111,6 +131,8 @@ class _GameScreenState extends State<GameScreen>
       _startTimer();
     } catch (e) {
       debugPrint("GameScreen Load Error: $e");
+      // Track: Technical failures
+      AnalyticsService.logError("level_load_failure", e.toString());
       if (mounted) Navigator.pop(context);
     }
   }
@@ -189,6 +211,9 @@ class _GameScreenState extends State<GameScreen>
       selectedCol = c;
     });
 
+    // Track: Engagement with help features
+    AnalyticsService.logHintUsed(widget.world, widget.levelNumber);
+
     _checkWin();
   }
 
@@ -211,6 +236,10 @@ class _GameScreenState extends State<GameScreen>
   /// Reverts the last move made by the player
   void undoMove() {
     if (history.isEmpty) return;
+
+    // Track: Undo usage (helps measure difficulty)
+    AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
+
     final last = history.removeLast();
     setState(() {
       board.setNumber(last["row"], last["col"], last["value"]);
@@ -236,9 +265,16 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _checkWin() async {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
-    if (!SudokuValidator.isValidSolution(board.board, board.solution)) return;
+    if (!SudokuValidator.isValidSolution(board.board, board.solution)) {
+      // Track: Attempted complete board but it's wrong
+      AnalyticsService.logInvalidSubmit(widget.world, widget.levelNumber);
+      return;
+    }
 
     _timer?.cancel();
+
+    final actualDuration = DateTime.now().difference(_levelStartTime).inSeconds;
+
     int stars = _calculateStars();
 
     // FIX: Using the correct method name from our ProgressService
@@ -246,6 +282,14 @@ class _GameScreenState extends State<GameScreen>
       globalLevel: widget.levelNumber, // This is our source of truth
       timeInSeconds: _secondsElapsed,
       stars: stars,
+    );
+
+    // Track: Level Success with detailed metrics
+    AnalyticsService.logLevelComplete(
+      world: widget.world,
+      level: widget.levelNumber,
+      stars: stars,
+      seconds: actualDuration,  // Use the high-accuracy time for analytics
     );
 
     if (mounted) _showWinScreen(stars);

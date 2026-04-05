@@ -3,6 +3,7 @@ import 'package:sudoku_game/main.dart';
 
 import '../widgets/world_tile.dart';
 import '../services/progress_service.dart';
+import '../services/analytics_service.dart';
 
 
 /// ============================================================================
@@ -47,6 +48,10 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Track: User entered the main world selection hub
+    AnalyticsService.logEvent(name: 'world_selection_open');
+
     _loadProgress();
   }
 
@@ -76,7 +81,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
 
       // 2. Extract results with type safety
       final int unlockedWorld = results[0] as int;
-      final Map<int, int> tempStarsMap = results[1] as Map<int, int>;
+      final Map<int, int> tempStarsMap = Map<int, int>.from(results[1] as Map);
 
     if (!mounted) return;
 
@@ -86,6 +91,16 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
       loading = false;
       _isLoading = false;
     });
+
+    // Track: User progress snapshot (useful for player profiling)
+      AnalyticsService.logEvent(
+        name: 'player_progress_sync',
+        parameters: {
+          'highest_world': unlockedWorld,
+          'total_stars_collected': tempStarsMap.values.fold<int>(0, (sum, val) => sum + val),
+        },
+      );
+
   } catch (e) {
     debugPrint("WorldMapScreen Error: $e");
     if (mounted) {
@@ -102,9 +117,16 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   /// ==========================================================================
   Future<void> _onWorldTap(int worldNumber, bool isLocked) async {
     if (isLocked) {
+
+      // Track: Attempt to access locked content
+      AnalyticsService.logLockedWorldClick(worldNumber);
+
       _showLockedMessage(context);
       return;
     }
+
+    // Track: Successful world entry
+    AnalyticsService.logWorldEntry(worldNumber);
 
     await Navigator.pushNamed(
       context,
