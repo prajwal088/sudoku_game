@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/progress_service.dart';
+import '../services/analytics_service.dart';
+
 import 'world_map_screen.dart';
 import 'dart:async';
 
@@ -41,6 +43,9 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+
+    // Track: App Open / Home View
+    AnalyticsService.logEvent(name: 'home_screen_view');
 
     _loadProgress();
 
@@ -108,6 +113,15 @@ class _HomeScreenState extends State<HomeScreen>
 
     int world = data["world"]!;
 
+    // Track: High-intent play action
+    AnalyticsService.logEvent(
+      name: 'home_click_continue',
+      parameters: {
+        'to_level': globalLevel,
+        'to_world': world,
+      },
+    );
+
 /*
     /// Debug log (remove in release if needed)
     // ignore: avoid_print
@@ -136,6 +150,10 @@ class _HomeScreenState extends State<HomeScreen>
   /// ==========================================================================
   Future<void> _openLevelMap() async {
     if (!mounted) return;
+
+    // Track: Navigation to world selection
+    AnalyticsService.logEvent(name: 'home_click_play_manual');
+    
     await Navigator.push(
       context,
       MaterialPageRoute(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/progress_service.dart';
+import '../services/analytics_service.dart';
 
 /// ============================================================================
 /// WinScreen
@@ -92,6 +93,10 @@ class _WinScreenState extends State<WinScreen>
         progressService.getLevelInWorld(widget.levelNumber) == ProgressService.levelsPerWorld;
 
     if (isLastLevelOfWorld && !isReplay && highestWorld <= widget.world) {
+
+      // Track: Major Milestone reached
+      AnalyticsService.logWorldComplete(widget.world);
+
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _showWorldCompleteDialog(widget.world);
@@ -277,6 +282,10 @@ class _WinScreenState extends State<WinScreen>
                   progressService.getLevelInWorld(widget.levelNumber) != ProgressService.levelsPerWorld)
                 ElevatedButton(
                   onPressed: () {
+
+                    // Track: Player choice to move forward
+                    AnalyticsService.logNavigation('next_level', widget.levelNumber);
+
                     Navigator.pushReplacementNamed(
                       context,
                       "/game",
@@ -305,6 +314,10 @@ class _WinScreenState extends State<WinScreen>
               /// REPLAY LEVEL
               OutlinedButton(
                 onPressed: () {
+
+                  // Track: Choice to retry for better stars/time
+                  AnalyticsService.logNavigation('replay_level', widget.levelNumber);
+
                   Navigator.pushReplacementNamed(
                     context,
                     "/game",
@@ -322,6 +335,9 @@ class _WinScreenState extends State<WinScreen>
               /// BACK TO LEVEL MAP
               TextButton(
                 onPressed: () {
+
+                  // Track: Exit to map
+                  AnalyticsService.logNavigation('back_to_map', widget.levelNumber);
 
                   //TODO: Update this to return to level map screen of that world
                   Navigator.pop(context);
