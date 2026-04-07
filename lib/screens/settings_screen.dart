@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../services/user_service.dart';
 import '../services/progress_service.dart';
@@ -329,7 +330,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     IconButton(
                       icon: const Icon(Icons.share),
                       onPressed: () {
-                        // TODO: Implement share
+                        // Track the event
+                        AnalyticsService.logEvent(name: 'settings_share_app');
+
+                        // Define the message (usually includes a link to Play Store/App Store)
+                        const String message = 
+                            "Check out this awesome app! Download it here: https://prajwal088.github.io/sudoku-app-docs/share-sudoku-app";
+
+                        // Trigger the native share sheet
+                        Share.share(message, subject: 'Check out this App!');
                       },
                     ),
                   ],
@@ -354,7 +363,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     InkWell(
                       onTap: () =>
-                          openLink("https://privacy.com", "Privacy Policy"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", "Privacy Policy"),
                       child: const Text(
                         "Privacy Policy",
                         style: TextStyle(
@@ -365,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(" • "),
                     InkWell(
                       onTap: () =>
-                          openLink("https://terms.com", "Terms & Conditions"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", "Terms & Conditions"),
                       child: const Text(
                         "Terms & Conditions",
                         style: TextStyle(
