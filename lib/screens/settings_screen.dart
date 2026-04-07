@@ -34,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserService userService = UserService();
   final ProgressService progressService = ProgressService();
+  late TextEditingController _nameController;
 
   String userName = "";
   String userId = "";
@@ -45,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     AnalyticsService.logEvent(name: 'settings_view'); // Track view
+    _nameController = TextEditingController();
     _initialize();
   }
 
@@ -109,7 +111,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// NAME INPUT DIALOG (SAFE + VALIDATED)
   /// ==========================================================================
   void _promptName() {
-    final controller = TextEditingController(text: userName);
+    // 1. Set the class-level controller text before showing the dialog
+    _nameController.text = userName;
     String? errorText;
 
     showDialog(
@@ -121,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return AlertDialog(
               title: const Text("Enter your name"),
               content: TextField(
-                controller: controller,
+                controller: _nameController,
                 decoration: InputDecoration(
                   hintText: "Your Name",
                   errorText: errorText,
@@ -130,7 +133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () async {
-                    final name = controller.text.trim();
+                    final name = _nameController.text.trim();
 
                     /// Validation
                     if (name.length < 3) {
@@ -152,21 +155,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return;
                     }
 
-                    final navigator = Navigator.of(dialogContext);
-
                     await userService.saveUserName(name);
 
                     // Track: Name update success
                     AnalyticsService.logEvent(name: 'user_update_name');
 
-                    if (!mounted) return;
+                    if (!dialogContext.mounted) return;
 
                     setState(() {
                       userName = name;
                     });
 
-                    controller.dispose(); // ✅ prevent leak
-                    navigator.pop();
+                    // Navigator.pop handles the cleanup of the dialog tree.
+                    Navigator.of(dialogContext).pop();
                   },
                   child: const Text("Save"),
                 )
@@ -392,5 +393,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+  @override
+  void dispose() {
+    _nameController.dispose(); // ✅ Properly dispose when the screen is destroyed
+    super.dispose();
   }
 }
