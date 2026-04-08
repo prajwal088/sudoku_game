@@ -202,7 +202,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _applyHint(int r, int c) {
-    _saveHistory(); // Allow undoing a hint if desired, or skip this to make hints permanent
+    _saveHistory(isHint: true); // Allow undoing a hint if desired, or skip this to make hints permanent
     
     setState(() {
       board.setNumber(r, c, board.solution[r][c]);
@@ -241,21 +241,34 @@ class _GameScreenState extends State<GameScreen>
     AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
     */
 
+    // 1. Look at the last move
+    final lastMove = history.last;
+
+    // 2. If the last move was a hint, we DON'T undo it.
+    // Instead, we might want to undo the move BEFORE the hint.
+    if (lastMove["isHintAction"] == true) {
+      history.removeLast(); 
+      undoMove(); // Find the move before the hint
+      return;
+    }
+
+    // 3. Normal undo for user-entered numbers
     final last = history.removeLast();
     setState(() {
       board.setNumber(last["row"], last["col"], last["value"]);
-      // Optional: if hint was undone, remove from hintedCells
+      // We do NOT touch hintedCells here, keeping the hint permanent.
     });
   }
 
   bool _isValidSelection() => 
     selectedRow != -1 && selectedCol != -1 && !board.fixed[selectedRow][selectedCol];
 
-  void _saveHistory() {
+  void _saveHistory({bool isHint = false}) {
     history.add({
       "row": selectedRow,
       "col": selectedCol,
       "value": board.board[selectedRow][selectedCol],
+      "isHintAction": isHint,
     });
     if (history.length > 20) history.removeAt(0); // Limit memory usage
   }
@@ -374,12 +387,15 @@ class _GameScreenState extends State<GameScreen>
               onHint: giveHint,
               onErase: () {
                 if (_isValidSelection()) {
-                  _saveHistory();
-                  setState(() {
-                    board.clearCell(selectedRow, selectedCol);
-                    // Remove from hintedCells so it's no longer "protected" or "marked"
-                    hintedCells.remove("$selectedRow-$selectedCol"); 
-                  });
+                  // Only allow erasing if the cell IS NOT a hinted cell
+                  if (!hintedCells.contains("$selectedRow-$selectedCol")) {
+                    _saveHistory();
+                    setState(() {
+                      board.clearCell(selectedRow, selectedCol);
+                    });
+                  } else {
+                    _showToast("Cannot erase a hint!");
+                  }
                 }
               },
             ),
