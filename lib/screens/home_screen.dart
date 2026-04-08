@@ -141,7 +141,6 @@ class _HomeScreenState extends State<HomeScreen>
     /// Step 4: Reload progress after returning
     if (mounted) {
       debugPrint("Returned to Home. Re-loading progress...");
-      await _loadProgress();
     }
   }
 
@@ -161,9 +160,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    if (mounted) {
-      await _loadProgress();
-    }
+    if (mounted) return;
   }
 
   /// ==========================================================================

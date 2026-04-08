@@ -34,7 +34,7 @@ class WinScreen extends StatefulWidget {
 }
 
 class _WinScreenState extends State<WinScreen>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final ProgressService progressService = ProgressService();
 
   bool _isReplay = false;

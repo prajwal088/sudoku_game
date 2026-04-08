@@ -235,9 +235,11 @@ class _GameScreenState extends State<GameScreen>
 
   void undoMove() {
     if (history.isEmpty) return;
-
+    
+    /*
     // Track: Undo usage (helps measure difficulty)
     AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
+    */
 
     final last = history.removeLast();
     setState(() {
@@ -265,8 +267,6 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _checkWin() async {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
     if (!SudokuValidator.isValidSolution(board.board, board.solution)) {
-      // Track: Attempted complete board but it's wrong
-      AnalyticsService.logInvalidSubmit(widget.world, widget.levelNumber);
       return;
     }
 
