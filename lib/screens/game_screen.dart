@@ -202,8 +202,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _applyHint(int r, int c) {
-    _saveHistory(isHint: true); // Allow undoing a hint if desired, or skip this to make hints permanent
-    
+   
     setState(() {
       board.setNumber(r, c, board.solution[r][c]);
       hintedCells.add("$r-$c");
@@ -224,39 +223,36 @@ class _GameScreenState extends State<GameScreen>
 
   void inputNumber(int number) {
     if (!_isValidSelection()) return;
-    
-    // Don't allow changing a hinted cell (Professional touch)
-    if (hintedCells.contains("$selectedRow-$selectedCol")) return;
 
     _saveHistory();
-    setState(() => board.setNumber(selectedRow, selectedCol, number));
+    setState(() {
+      board.setNumber(selectedRow, selectedCol, number);
+      // If they type a number manually, it's no longer a "Hinted Cell"
+      hintedCells.remove("$selectedRow-$selectedCol");
+    });
     _checkWin();
   }
 
   void undoMove() {
     if (history.isEmpty) return;
-    
-    /*
-    // Track: Undo usage (helps measure difficulty)
-    AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
-    */
 
-    // 1. Look at the last move
-    final lastMove = history.last;
+      /*
+      // Track: Undo usage (helps measure difficulty)
+      AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
+      */
 
-    // 2. If the last move was a hint, we DON'T undo it.
-    // Instead, we might want to undo the move BEFORE the hint.
-    if (lastMove["isHintAction"] == true) {
-      history.removeLast(); 
-      undoMove(); // Find the move before the hint
+    final last = history.removeLast();
+    final cellKey = "${last["row"]}-${last["col"]}";
+
+    // If the cell is currently a hint, don't let undo touch it.
+    // Skip this record and try to undo the move before it.
+    if (hintedCells.contains(cellKey)) {
+      undoMove(); 
       return;
     }
 
-    // 3. Normal undo for user-entered numbers
-    final last = history.removeLast();
     setState(() {
       board.setNumber(last["row"], last["col"], last["value"]);
-      // We do NOT touch hintedCells here, keeping the hint permanent.
     });
   }
 
@@ -387,15 +383,13 @@ class _GameScreenState extends State<GameScreen>
               onHint: giveHint,
               onErase: () {
                 if (_isValidSelection()) {
-                  // Only allow erasing if the cell IS NOT a hinted cell
-                  if (!hintedCells.contains("$selectedRow-$selectedCol")) {
-                    _saveHistory();
-                    setState(() {
-                      board.clearCell(selectedRow, selectedCol);
-                    });
-                  } else {
-                    _showToast("Cannot erase a hint!");
-                  }
+                  _saveHistory();
+                  setState(() {
+                    board.clearCell(selectedRow, selectedCol);
+                    // Remove from hintedCells so the user can request a hint 
+                    // for this specific cell again later if they get stuck.
+                    hintedCells.remove("$selectedRow-$selectedCol"); 
+                  });
                 }
               },
             ),

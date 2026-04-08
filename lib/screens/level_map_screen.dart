@@ -109,28 +109,24 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// AUTO SCROLL TO CURRENT LEVEL
   /// ==========================================================================
   void _scrollToCurrentLevel() {
-    if (levels.isEmpty || !_scrollController.hasClients) return;
+    // Add a tiny delay to ensure GridView has calculated its layout
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!mounted || !_scrollController.hasClients || levels.isEmpty) return;
 
-    // Find the current level within the current world list
-    int indexInList = levels.indexWhere((l) => l.levelNumber == currentGlobalLevel);
-    if (indexInList == -1) return; // Current level is in a different world
+      // Find the current level within the current world list
+      int indexInList = levels.indexWhere((l) => l.levelNumber == currentGlobalLevel);
+      if (indexInList == -1) return; // Current level is in a different world
 
-    int row = indexInList ~/ itemsPerRow;
-    double offset = (row * itemHeight).clamp(0, _scrollController.position.maxScrollExtent);
+      int row = indexInList ~/ itemsPerRow;
+      // Use the actual height of your tiles + spacing
+      double offset = row * (itemHeight + 12);
 
-    /// Prevent overscroll
-    if (_scrollController.hasClients) {
-      offset = offset.clamp(
-        0,
-        _scrollController.position.maxScrollExtent,
-      );
-
-      _scrollController.animateTo(
-        offset,
+        _scrollController.animateTo(
+        offset.clamp(0, _scrollController.position.maxScrollExtent),
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
       );
-    }
+    });
   }
 
   /// ==========================================================================
@@ -161,14 +157,10 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       context,
       "/game",
       arguments: {
-        "levelNumber": level.levelNumber, // THE GLOBAL ID
+        "levelNumber": level.levelNumber,
         "world": widget.world,
       },
     );
-    if (mounted) {
-      debugPrint("Returning from game, refreshing level map...");
-      _loadProgress(); // This refreshes your stars and locks!
-    }
   }
 
   /// ==========================================================================

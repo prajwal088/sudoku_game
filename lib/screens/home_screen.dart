@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen>
     controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
-    );
+    )..repeat(reverse: true); // Cascaded repeat
 
     scaleAnimation = Tween<double>(
       begin: 0.9,
@@ -100,24 +100,17 @@ class _HomeScreenState extends State<HomeScreen>
   /// CONTINUE BUTTON HANDLER (PRODUCTION SAFE)
   /// ==========================================================================
   Future<void> _handleContinue() async {
-    /// Step 1: Get next unlocked GLOBAL level
-    int globalLevel = await progressService.getNextUnlockedLevel();
+    // Optimization: Use the variable we already have in state
+    if (nextLevel < 1) return;
 
-    if (!mounted) return;
-
-    /// Safety guard (prevents invalid navigation)
-    if (globalLevel < 1) return;
-
-    /// Step 2: Convert → world + level using SERVICE (single source of truth)
-    final data = progressService.getWorldAndLevel(globalLevel);
-
+    final data = progressService.getWorldAndLevel(nextLevel);
     int world = data["world"]!;
 
     // Track: High-intent play action
     AnalyticsService.logEvent(
       name: 'home_click_continue',
       parameters: {
-        'to_level': globalLevel,
+        'to_level': nextLevel,
         'to_world': world,
       },
     );
@@ -133,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen>
       context,
       "/game",
       arguments: {
-        "levelNumber": globalLevel,   // Send the unique Global ID (1-250)
+        "levelNumber": nextLevel,
         "world": world,   // World number
       },
     );
