@@ -68,6 +68,7 @@ class AnalyticsService {
     );
   }
 
+/*
   /// Track Undo usage
   static Future<void> logUndoUsed(int world, int level) async {
     await _analytics.logEvent(
@@ -78,17 +79,7 @@ class AnalyticsService {
       },
     );
   }
-
-  /// Track if they try to finish with an incorrect board
-  static Future<void> logInvalidSubmit(int world, int level) async {
-    await _analytics.logEvent(
-      name: 'invalid_submission',
-      parameters: {
-        'world_id': world,
-        'level_id': level,
-      },
-    );
-  }
+  */
 
   /// ==========================================================================
   /// WIN SCREEN TRACKS

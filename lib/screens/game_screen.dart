@@ -201,8 +201,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _applyHint(int r, int c) {
-    _saveHistory(); // Allow undoing a hint if desired, or skip this to make hints permanent
-    
+   
     setState(() {
       board.setNumber(r, c, board.solution[r][c]);
       hintedCells.add("$r-$c");
@@ -224,12 +223,13 @@ class _GameScreenState extends State<GameScreen>
   /// Handles user input into the selected cell
   void inputNumber(int number) {
     if (!_isValidSelection()) return;
-    
-    // Don't allow changing a hinted cell (Professional touch)
-    if (hintedCells.contains("$selectedRow-$selectedCol")) return;
 
     _saveHistory();
-    setState(() => board.setNumber(selectedRow, selectedCol, number));
+    setState(() {
+      board.setNumber(selectedRow, selectedCol, number);
+      // If they type a number manually, it's no longer a "Hinted Cell"
+      hintedCells.remove("$selectedRow-$selectedCol");
+    });
     _checkWin();
   }
 
@@ -237,24 +237,35 @@ class _GameScreenState extends State<GameScreen>
   void undoMove() {
     if (history.isEmpty) return;
 
-    // Track: Undo usage (helps measure difficulty)
-    AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
+      /*
+      // Track: Undo usage (helps measure difficulty)
+      AnalyticsService.logUndoUsed(widget.world, widget.levelNumber);
+      */
 
     final last = history.removeLast();
+    final cellKey = "${last["row"]}-${last["col"]}";
+
+    // If the cell is currently a hint, don't let undo touch it.
+    // Skip this record and try to undo the move before it.
+    if (hintedCells.contains(cellKey)) {
+      undoMove(); 
+      return;
+    }
+
     setState(() {
       board.setNumber(last["row"], last["col"], last["value"]);
-      // Optional: if hint was undone, remove from hintedCells
     });
   }
 
   bool _isValidSelection() => 
     selectedRow != -1 && selectedCol != -1 && !board.fixed[selectedRow][selectedCol];
 
-  void _saveHistory() {
+  void _saveHistory({bool isHint = false}) {
     history.add({
       "row": selectedRow,
       "col": selectedCol,
       "value": board.board[selectedRow][selectedCol],
+      "isHintAction": isHint,
     });
     if (history.length > 20) history.removeAt(0); // Limit memory usage
   }
@@ -266,8 +277,6 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _checkWin() async {
     if (!SudokuValidator.isBoardComplete(board.board)) return;
     if (!SudokuValidator.isValidSolution(board.board, board.solution)) {
-      // Track: Attempted complete board but it's wrong
-      AnalyticsService.logInvalidSubmit(widget.world, widget.levelNumber);
       return;
     }
 
@@ -387,7 +396,8 @@ class _GameScreenState extends State<GameScreen>
                   _saveHistory();
                   setState(() {
                     board.clearCell(selectedRow, selectedCol);
-                    // Remove from hintedCells so it's no longer "protected" or "marked"
+                    // Remove from hintedCells so the user can request a hint 
+                    // for this specific cell again later if they get stuck.
                     hintedCells.remove("$selectedRow-$selectedCol"); 
                   });
                 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../services/user_service.dart';
 import '../services/progress_service.dart';
@@ -33,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserService userService = UserService();
   final ProgressService progressService = ProgressService();
+  late TextEditingController _nameController;
 
   String userName = "";
   String userId = "";
@@ -44,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     AnalyticsService.logEvent(name: 'settings_view'); // Track view
+    _nameController = TextEditingController();
     _initialize();
   }
 
@@ -108,7 +111,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// NAME INPUT DIALOG (SAFE + VALIDATED)
   /// ==========================================================================
   void _promptName() {
-    final controller = TextEditingController(text: userName);
+    // 1. Set the class-level controller text before showing the dialog
+    _nameController.text = userName;
     String? errorText;
 
     showDialog(
@@ -120,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return AlertDialog(
               title: const Text("Enter your name"),
               content: TextField(
-                controller: controller,
+                controller: _nameController,
                 decoration: InputDecoration(
                   hintText: "Your Name",
                   errorText: errorText,
@@ -129,7 +133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () async {
-                    final name = controller.text.trim();
+                    final name = _nameController.text.trim();
 
                     /// Validation
                     if (name.length < 3) {
@@ -151,21 +155,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return;
                     }
 
-                    final navigator = Navigator.of(dialogContext);
-
                     await userService.saveUserName(name);
 
                     // Track: Name update success
                     AnalyticsService.logEvent(name: 'user_update_name');
 
-                    if (!mounted) return;
+                    if (!dialogContext.mounted) return;
 
                     setState(() {
                       userName = name;
                     });
 
-                    controller.dispose(); // ✅ prevent leak
-                    navigator.pop();
+                    // Navigator.pop handles the cleanup of the dialog tree.
+                    Navigator.of(dialogContext).pop();
                   },
                   child: const Text("Save"),
                 )
@@ -329,7 +331,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     IconButton(
                       icon: const Icon(Icons.share),
                       onPressed: () {
-                        // TODO: Implement share
+                        // Track the event
+                        AnalyticsService.logEvent(name: 'settings_share_app');
+
+                        // Define the message (usually includes a link to Play Store/App Store)
+                        const String message = 
+                            "Check out this awesome app! Download it here: https://prajwal088.github.io/sudoku-app-docs/share-sudoku-app";
+
+                        // Trigger the native share sheet
+                        Share.share(message, subject: 'Check out this App!');
                       },
                     ),
                   ],
@@ -354,7 +364,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     InkWell(
                       onTap: () =>
-                          openLink("https://privacy.com", "Privacy Policy"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", "Privacy Policy"),
                       child: const Text(
                         "Privacy Policy",
                         style: TextStyle(
@@ -365,7 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(" • "),
                     InkWell(
                       onTap: () =>
-                          openLink("https://terms.com", "Terms & Conditions"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", "Terms & Conditions"),
                       child: const Text(
                         "Terms & Conditions",
                         style: TextStyle(
@@ -383,5 +393,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+  @override
+  void dispose() {
+    _nameController.dispose(); // ✅ Properly dispose when the screen is destroyed
+    super.dispose();
   }
 }
