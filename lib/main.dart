@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// Localization Imports
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
+
 import 'firebase_options.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -94,6 +98,17 @@ class SudokuApp extends StatelessWidget {
       title: "Sudoku",
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+
+      /// ======================================================================
+      /// LOCALIZATION CONFIGURATION
+      /// ======================================================================
+      localizationsDelegates: const [
+        AppLocalizations.delegate, // The generated delegate
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
 
       /// Global navigation access
       navigatorKey: navigatorKey,

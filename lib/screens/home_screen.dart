@@ -178,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen>
 
               /// TITLE
               const Text(
-                "Sudoku",
+                "AppLocalizations.of(context)!.appTitle",
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -199,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   child: Text(
-                    "Continue (Level $nextLevel)", // shows GLOBAL level
+                    "AppLocalizations.of(context)!.continueButton (Level $nextLevel)", // shows GLOBAL level
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
@@ -217,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 child: const Text(
-                  "Play",
+                  "AppLocalizations.of(context)!.playButton",
                   style: TextStyle(fontSize: 18),
                 ),
               ),
@@ -250,7 +250,7 @@ class _HomeScreenState extends State<HomeScreen>
 
               /// FOOTER
               const Text(
-                "Solve puzzles. Train your brain.",
+                "AppLocalizations.of(context)!.footerText",
                 style: TextStyle(
                   color: Colors.grey,
                 ),

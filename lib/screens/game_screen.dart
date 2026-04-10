@@ -339,11 +339,11 @@ class _GameScreenState extends State<GameScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("World ${widget.world} - Level ${widget.levelNumber}"),
+        title: Text("AppLocalizations.of(context)!.worldText ${widget.world} - AppLocalizations.of(context)!.levelText ${widget.levelNumber}"),
         actions: [
           Center(child: Padding(
             padding: const EdgeInsets.only(right: 16.0),
-            child: Text("Hints: $hintsRemaining", style: const TextStyle(fontSize: 16)),
+            child: Text("AppLocalizations.of(context)!.hintButton: $hintsRemaining", style: const TextStyle(fontSize: 16)),
           ))
         ],
       ),

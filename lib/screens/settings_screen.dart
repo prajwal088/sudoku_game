@@ -266,7 +266,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Settings")),
+      appBar: AppBar(title: const Text("AppLocalizations.of(context)!.settingsButton")),
       body: Column(
         children: [
           /// ================= SCROLLABLE CONTENT =================
@@ -279,7 +279,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.person,
                   title:
                       userName.isEmpty ? "Set your name" : userName,
-                  subtitle: "Tap to edit",
+                  subtitle: "AppLocalizations.of(context)!.editNameButton",
                   trailing: const Icon(Icons.edit),
                   onTap: _promptName,
                 ),
@@ -364,7 +364,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     InkWell(
                       onTap: () =>
-                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", "Privacy Policy"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", "AppLocalizations.of(context)!.privacyPolicy"),
                       child: const Text(
                         "Privacy Policy",
                         style: TextStyle(
@@ -375,7 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(" • "),
                     InkWell(
                       onTap: () =>
-                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", "Terms & Conditions"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", "AppLocalizations.of(context)!.termsConditions"),
                       child: const Text(
                         "Terms & Conditions",
                         style: TextStyle(

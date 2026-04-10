@@ -1,0 +1,177 @@
+{
+  "@@locale": "en",
+  
+  "appTitle": "Sudoku World",
+  "@appTitle": {
+    "description": "The main title of the application"
+  },
+
+  "playButton": "Play",
+  "@playButton": {
+    "description": "Button to start the game from the main menu"
+  },
+
+  "continueButton": "Continue",
+  "@continueButton": {
+    "description": "Button to continue an ongoing game level"
+  },
+  
+  "footerText": "Solve puzzles. Train your brain.",
+  "@footerText": {
+    "description": "game text"
+  },
+
+  "worldLockedMessage": "Complete previous world to unlock",
+  "@worldLockedMessage": {
+    "description": "Message shown when a user tries to access a locked world"
+  },
+  
+  "levelLockedMessage": "Complete previous levels first!",
+  "@levelLockedMessage": {
+    "description": "Message shown when a user tries to access a locked level"
+  },
+  
+  "hintButton": "Hint",
+  "@hintButton": {
+    "description": "Label for the hint feature"
+  },
+  
+  "worldText": "World",
+  "@worldText": {
+    "description": "world Text"
+  },
+  
+  "levelText": "Level",
+  "@levelText": {
+    "description": "Level Text"
+  },
+
+  "settingsButton": "Settings",
+  "@settingsButton": {
+    "description": "Button to open the settings menu"
+  },
+  
+  "editNameButton": "Tap to edit",
+  "@editNameButton": {
+    "description": "Button to edit name"
+  },
+  
+  "privacyPolicy": "Privacy Policy",
+  "@privacyPolicy": {
+    "description": "Link text for the privacy policy"
+  },
+
+  "termsConditions": "Terms & Conditions",
+  "@termsConditions": {
+    "description": "Link text for terms and conditions"
+  },
+
+  
+
+  "exitButton": "Exit",
+  "@exitButton": {
+    "description": "Button to close the application"
+  },
+
+  "worldSelectionTitle": "Select World",
+  "@worldSelectionTitle": {
+    "description": "Title for the world selection screen"
+  },
+
+  "worldCompletion": "World Progress: {percentage}%",
+  "@worldCompletion": {
+    "description": "Shows the completion percentage of a world",
+    "placeholders": {
+      "percentage": {
+        "type": "int",
+        "example": "45"
+      }
+    }
+  },
+
+
+
+  "levelLabel": "Level {number}",
+  "@levelLabel": {
+    "description": "Label indicating the current level number",
+    "placeholders": {
+      "number": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+
+  "gameWonTitle": "Level Complete!",
+  "@gameWonTitle": {
+    "description": "Celebratory text shown when a puzzle is solved"
+  },
+
+  "gameWonSubtitle": "You solved the puzzle!",
+  "@gameWonSubtitle": {
+    "description": "Sub-text shown under the level complete title"
+  },
+
+  "nextLevelButton": "Next Level",
+  "@nextLevelButton": {
+    "description": "Button to progress to the next puzzle"
+  },
+
+  "tryAgainButton": "Try Again",
+  "@tryAgainButton": {
+    "description": "Button to restart the current level"
+  },
+
+  "timerLabel": "Time: {minutes}:{seconds}",
+  "@timerLabel": {
+    "description": "Displays the elapsed time for the current game",
+    "placeholders": {
+      "minutes": {
+        "type": "String",
+        "example": "05"
+      },
+      "seconds": {
+        "type": "String",
+        "example": "23"
+      }
+    }
+  },
+
+  "mistakesLabel": "Mistakes: {count}/3",
+  "@mistakesLabel": {
+    "description": "Displays the number of incorrect moves made",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+
+
+
+  "undoButton": "Undo",
+  "@undoButton": {
+    "description": "Label for the undo move button"
+  },
+
+  "eraseButton": "Erase",
+  "@eraseButton": {
+    "description": "Label for the tool used to clear a cell"
+  },
+
+  "difficultyEasy": "Easy",
+  "@difficultyEasy": {
+    "description": "Label for easy difficulty"
+  },
+
+  "difficultyMedium": "Medium",
+  "@difficultyMedium": {
+    "description": "Label for medium difficulty"
+  },
+
+  "difficultyHard": "Hard",
+  "@difficultyHard": {
+    "description": "Label for hard difficulty"
+  }
+}

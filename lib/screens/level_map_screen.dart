@@ -140,7 +140,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       AnalyticsService.logLockedLevelClick(widget.world, level.levelNumber);
       
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Complete previous levels first!")),
+        const SnackBar(content: Text("AppLocalizations.of(context)!.levelLockedMessage")),
       );
       return;
     }

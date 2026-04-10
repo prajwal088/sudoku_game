@@ -153,7 +153,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Select World"),
+        title: const Text("AppLocalizations.of(context)!.worldSelectionTitle"),
         centerTitle: true,
       ),
 
@@ -231,7 +231,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   void _showLockedMessage(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Complete previous world to unlock"),
+        content: Text("AppLocalizations.of(context)!.worldLockedMessage"),
       ),
     );
   }
