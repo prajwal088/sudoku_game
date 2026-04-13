@@ -66,8 +66,38 @@
     "description": "Link text for terms and conditions"
   },
 
-  
+  "gameWonTitle": "Level Complete!",
+  "@gameWonTitle": {
+    "description": "Celebratory text shown when a puzzle is solved"
+  },
 
+  "gameWonSubtitle": "You solved the puzzle!",
+  "@gameWonSubtitle": {
+    "description": "Sub-text shown under the level complete title"
+  },
+
+  "nextLevelButton": "Next Level",
+  "@nextLevelButton": {
+    "description": "Button to progress to the next puzzle"
+  },
+
+  "replaynButton": "Replay Level",
+  "@replaynButton": {
+    "description": "Button to restart the current level"
+  },
+
+  "backToLevelMapButton": "Back to Level Map",
+  "@backToLevelMapButton": {
+    "description": "Button to return to level map"
+  },
+
+  "worldComplete": "🎉 World Complete!",
+  "@worldComplete": {
+    "description": "world complete text"
+  },
+
+
+  
   "exitButton": "Exit",
   "@exitButton": {
     "description": "Button to close the application"
@@ -88,67 +118,6 @@
       }
     }
   },
-
-
-
-  "levelLabel": "Level {number}",
-  "@levelLabel": {
-    "description": "Label indicating the current level number",
-    "placeholders": {
-      "number": {
-        "type": "int",
-        "example": "1"
-      }
-    }
-  },
-
-  "gameWonTitle": "Level Complete!",
-  "@gameWonTitle": {
-    "description": "Celebratory text shown when a puzzle is solved"
-  },
-
-  "gameWonSubtitle": "You solved the puzzle!",
-  "@gameWonSubtitle": {
-    "description": "Sub-text shown under the level complete title"
-  },
-
-  "nextLevelButton": "Next Level",
-  "@nextLevelButton": {
-    "description": "Button to progress to the next puzzle"
-  },
-
-  "tryAgainButton": "Try Again",
-  "@tryAgainButton": {
-    "description": "Button to restart the current level"
-  },
-
-  "timerLabel": "Time: {minutes}:{seconds}",
-  "@timerLabel": {
-    "description": "Displays the elapsed time for the current game",
-    "placeholders": {
-      "minutes": {
-        "type": "String",
-        "example": "05"
-      },
-      "seconds": {
-        "type": "String",
-        "example": "23"
-      }
-    }
-  },
-
-  "mistakesLabel": "Mistakes: {count}/3",
-  "@mistakesLabel": {
-    "description": "Displays the number of incorrect moves made",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "1"
-      }
-    }
-  },
-
-
 
   "undoButton": "Undo",
   "@undoButton": {

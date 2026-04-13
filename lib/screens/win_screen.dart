@@ -197,7 +197,7 @@ class _WinScreenState extends State<WinScreen>
                     child: const Icon(Icons.emoji_events, size: 120, color: Colors.orange),
                   ),
                   const SizedBox(height: 20),
-                  const Text("Level Complete!", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                  const Text("AppLocalizations.of(context)!.gameWonTitle!", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                   Text("Level ${widget.levelNumber}", style: const TextStyle(fontSize: 18, color: Colors.grey)),
                   
                   const SizedBox(height: 25),
@@ -266,7 +266,7 @@ class _WinScreenState extends State<WinScreen>
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(color: Colors.blue.shade300, width: 2),
                             ),
-                            child: const Text("Replay Level", style: TextStyle(fontSize: 16)),
+                            child: const Text("AppLocalizations.of(context)!.replaynButton", style: TextStyle(fontSize: 16)),
                           ),
                         ),
 
@@ -275,7 +275,7 @@ class _WinScreenState extends State<WinScreen>
                         /// --- Tertiary Action: Map ---
                         TextButton(
                           onPressed: () => _goToMap(),
-                          child: const Text("Back to Level Map", style: TextStyle(fontSize: 16)),
+                          child: const Text("AppLocalizations.of(context)!.backToLevelMapButton", style: TextStyle(fontSize: 16)),
                         ),
                       ],
                     ),
@@ -311,7 +311,7 @@ class _WinScreenState extends State<WinScreen>
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Text("🎉 World Complete!"),
+        title: const Text("AppLocalizations.of(context)!.worldComplete"),
         content: Text("You unlocked World ${world + 1}!"),
         actions: [
           TextButton(
@@ -325,7 +325,7 @@ class _WinScreenState extends State<WinScreen>
                 arguments: world + 1,
               );
             },
-            child: const Text("Continue"),
+            child: const Text("AppLocalizations.of(context)!.continueButton"),
           )
         ],
       ),
