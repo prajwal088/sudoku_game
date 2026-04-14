@@ -201,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   child: Text(
-                    "${AppLocalizations.of(context)!.continueButton} (Level $nextLevel)", // shows GLOBAL level
+                    "${AppLocalizations.of(context)!.continueButton} (${AppLocalizations.of(context)!.levelText} $nextLevel)", // shows GLOBAL level
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
