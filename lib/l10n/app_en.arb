@@ -96,8 +96,25 @@
     "description": "world complete text"
   },
 
+  "lifeTimeStatistics": "Lifetime Statistics",
+  "@lifeTimeStatistics": {
+    "description": "Lifetime Statistics"
+  },
 
-  
+  "totalTimePlayed": "Total Time Played",
+  "@totalTimePlayed": {
+    "description": "Total Time Played"
+  },
+
+  "avgSolveTime": "Avg. Solve Time",
+  "@avgSolveTime": {
+    "description": "Avg. Solve Time"
+  },
+
+
+
+
+
   "exitButton": "Exit",
   "@exitButton": {
     "description": "Button to close the application"

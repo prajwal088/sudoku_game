@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
 
 import '../models/level.dart';
 import '../services/level_service.dart';
@@ -140,7 +141,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       AnalyticsService.logLockedLevelClick(widget.world, level.levelNumber);
       
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("AppLocalizations.of(context)!.levelLockedMessage")),
+        SnackBar(content: Text(AppLocalizations.of(context)!.levelLockedMessage)),
       );
       return;
     }

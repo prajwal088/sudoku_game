@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
 import 'dart:async';
 
 import '../models/level.dart';
@@ -339,11 +340,11 @@ class _GameScreenState extends State<GameScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("AppLocalizations.of(context)!.worldText ${widget.world} - AppLocalizations.of(context)!.levelText ${widget.levelNumber}"),
+        title: Text("${AppLocalizations.of(context)!.worldText} ${widget.world} - ${AppLocalizations.of(context)!.levelText} ${widget.levelNumber}"),
         actions: [
           Center(child: Padding(
             padding: const EdgeInsets.only(right: 16.0),
-            child: Text("AppLocalizations.of(context)!.hintButton: $hintsRemaining", style: const TextStyle(fontSize: 16)),
+            child: Text("${AppLocalizations.of(context)!.hintButton}: $hintsRemaining", style: const TextStyle(fontSize: 16)),
           ))
         ],
       ),

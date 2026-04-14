@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sudoku_game/main.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
 
 import '../widgets/world_tile.dart';
 import '../services/progress_service.dart';
@@ -153,7 +154,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("AppLocalizations.of(context)!.worldSelectionTitle"),
+        title: Text(AppLocalizations.of(context)!.worldSelectionTitle),
         centerTitle: true,
       ),
 
@@ -230,8 +231,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   /// ==========================================================================
   void _showLockedMessage(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("AppLocalizations.of(context)!.worldLockedMessage"),
+      SnackBar(
+        content: Text(AppLocalizations.of(context)!.worldLockedMessage),
       ),
     );
   }

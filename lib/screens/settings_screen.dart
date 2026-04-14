@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
 
 import '../services/user_service.dart';
 import '../services/progress_service.dart';
@@ -266,7 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("AppLocalizations.of(context)!.settingsButton")),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.settingsButton)),
       body: Column(
         children: [
           /// ================= SCROLLABLE CONTENT =================
@@ -279,7 +280,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.person,
                   title:
                       userName.isEmpty ? "Set your name" : userName,
-                  subtitle: "AppLocalizations.of(context)!.editNameButton",
+                  subtitle: AppLocalizations.of(context)!.editNameButton,
                   trailing: const Icon(Icons.edit),
                   onTap: _promptName,
                 ),
@@ -364,7 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     InkWell(
                       onTap: () =>
-                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", "AppLocalizations.of(context)!.privacyPolicy"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/privacy-policy", AppLocalizations.of(context)!.privacyPolicy),
                       child: const Text(
                         "Privacy Policy",
                         style: TextStyle(
@@ -375,7 +376,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(" • "),
                     InkWell(
                       onTap: () =>
-                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", "AppLocalizations.of(context)!.termsConditions"),
+                          openLink("https://prajwal088.github.io/sudoku-app-docs/terms-and-conditions", AppLocalizations.of(context)!.termsConditions),
                       child: const Text(
                         "Terms & Conditions",
                         style: TextStyle(

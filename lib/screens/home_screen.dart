@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
 
 import '../services/progress_service.dart';
 import '../services/analytics_service.dart';
@@ -161,6 +162,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// ==========================================================================
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -177,8 +179,8 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 10),
 
               /// TITLE
-              const Text(
-                "AppLocalizations.of(context)!.appTitle",
+              Text(
+                AppLocalizations.of(context)!.appTitle,
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -199,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   child: Text(
-                    "AppLocalizations.of(context)!.continueButton (Level $nextLevel)", // shows GLOBAL level
+                    "${AppLocalizations.of(context)!.continueButton} (Level $nextLevel)", // shows GLOBAL level
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
@@ -216,8 +218,8 @@ class _HomeScreenState extends State<HomeScreen>
                     vertical: 16,
                   ),
                 ),
-                child: const Text(
-                  "AppLocalizations.of(context)!.playButton",
+                child: Text(
+                  AppLocalizations.of(context)!.playButton,
                   style: TextStyle(fontSize: 18),
                 ),
               ),
@@ -249,8 +251,8 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 20),
 
               /// FOOTER
-              const Text(
-                "AppLocalizations.of(context)!.footerText",
+              Text(
+                AppLocalizations.of(context)!.footerText,
                 style: TextStyle(
                   color: Colors.grey,
                 ),

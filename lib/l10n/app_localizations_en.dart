@@ -15,29 +15,37 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playButton => 'Play';
 
   @override
-  String get resumeButton => 'Resume';
+  String get continueButton => 'Continue';
+
+  @override
+  String get footerText => 'Solve puzzles. Train your brain.';
+
+  @override
+  String get worldLockedMessage => 'Complete previous world to unlock';
+
+  @override
+  String get levelLockedMessage => 'Complete previous levels first!';
+
+  @override
+  String get hintButton => 'Hint';
+
+  @override
+  String get worldText => 'World';
+
+  @override
+  String get levelText => 'Level';
 
   @override
   String get settingsButton => 'Settings';
 
   @override
-  String get exitButton => 'Exit';
+  String get editNameButton => 'Tap to edit';
 
   @override
-  String get worldSelectionTitle => 'Select World';
+  String get privacyPolicy => 'Privacy Policy';
 
   @override
-  String get worldLockedMessage => 'Unlock previous world to enter';
-
-  @override
-  String worldCompletion(int percentage) {
-    return 'World Progress: $percentage%';
-  }
-
-  @override
-  String levelLabel(int number) {
-    return 'Level $number';
-  }
+  String get termsConditions => 'Terms & Conditions';
 
   @override
   String get gameWonTitle => 'Level Complete!';
@@ -49,29 +57,39 @@ class AppLocalizationsEn extends AppLocalizations {
   String get nextLevelButton => 'Next Level';
 
   @override
-  String get tryAgainButton => 'Try Again';
+  String get replaynButton => 'Replay Level';
 
   @override
-  String timerLabel(String minutes, String seconds) {
-    return 'Time: $minutes:$seconds';
+  String get backToLevelMapButton => 'Back to Level Map';
+
+  @override
+  String get worldComplete => '🎉 World Complete!';
+
+  @override
+  String get lifeTimeStatistics => 'Lifetime Statistics';
+
+  @override
+  String get totalTimePlayed => 'Total Time Played';
+
+  @override
+  String get avgSolveTime => 'Avg. Solve Time';
+
+  @override
+  String get exitButton => 'Exit';
+
+  @override
+  String get worldSelectionTitle => 'Select World';
+
+  @override
+  String worldCompletion(int percentage) {
+    return 'World Progress: $percentage%';
   }
-
-  @override
-  String mistakesLabel(int count) {
-    return 'Mistakes: $count/3';
-  }
-
-  @override
-  String get hintButton => 'Hint';
 
   @override
   String get undoButton => 'Undo';
 
   @override
   String get eraseButton => 'Erase';
-
-  @override
-  String get notesButton => 'Notes';
 
   @override
   String get difficultyEasy => 'Easy';
@@ -81,13 +99,4 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get difficultyHard => 'Hard';
-
-  @override
-  String get difficultyExpert => 'Expert';
-
-  @override
-  String get privacyPolicy => 'Privacy Policy';
-
-  @override
-  String get termsConditions => 'Terms & Conditions';
 }

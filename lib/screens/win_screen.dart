@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
+
 import '../services/progress_service.dart';
 import '../services/analytics_service.dart';
 
@@ -197,7 +199,7 @@ class _WinScreenState extends State<WinScreen>
                     child: const Icon(Icons.emoji_events, size: 120, color: Colors.orange),
                   ),
                   const SizedBox(height: 20),
-                  const Text("AppLocalizations.of(context)!.gameWonTitle!", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                  Text(AppLocalizations.of(context)!.gameWonTitle, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
                   Text("Level ${widget.levelNumber}", style: const TextStyle(fontSize: 18, color: Colors.grey)),
                   
                   const SizedBox(height: 25),
@@ -266,7 +268,7 @@ class _WinScreenState extends State<WinScreen>
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(color: Colors.blue.shade300, width: 2),
                             ),
-                            child: const Text("AppLocalizations.of(context)!.replaynButton", style: TextStyle(fontSize: 16)),
+                            child: Text(AppLocalizations.of(context)!.replaynButton, style: TextStyle(fontSize: 16)),
                           ),
                         ),
 
@@ -275,7 +277,7 @@ class _WinScreenState extends State<WinScreen>
                         /// --- Tertiary Action: Map ---
                         TextButton(
                           onPressed: () => _goToMap(),
-                          child: const Text("AppLocalizations.of(context)!.backToLevelMapButton", style: TextStyle(fontSize: 16)),
+                          child: Text(AppLocalizations.of(context)!.backToLevelMapButton, style: TextStyle(fontSize: 16)),
                         ),
                       ],
                     ),
@@ -311,7 +313,7 @@ class _WinScreenState extends State<WinScreen>
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Text("AppLocalizations.of(context)!.worldComplete"),
+        title: Text(AppLocalizations.of(context)!.worldComplete),
         content: Text("You unlocked World ${world + 1}!"),
         actions: [
           TextButton(
@@ -325,7 +327,7 @@ class _WinScreenState extends State<WinScreen>
                 arguments: world + 1,
               );
             },
-            child: const Text("AppLocalizations.of(context)!.continueButton"),
+            child: Text(AppLocalizations.of(context)!.continueButton),
           )
         ],
       ),

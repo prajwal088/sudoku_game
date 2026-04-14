@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/l10n/app_localizations.dart';
+
 import '../services/progress_service.dart';
 import '../services/analytics_service.dart';
 import '../widgets/statistics_card.dart';
@@ -62,7 +64,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Text('Lifetime Statistics'),
+        title: Text(AppLocalizations.of(context)!.lifeTimeStatistics),
         elevation: 0,
       ),
       body: _stats == null
@@ -84,9 +86,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   icon: Icons.star,
                 ),
                 const SizedBox(height: 12),
-                _buildSimpleStatTile("Total Time Played", _formatTime(_stats!["totalTime"]), Icons.timer),
+                _buildSimpleStatTile(AppLocalizations.of(context)!.totalTimePlayed, _formatTime(_stats!["totalTime"]), Icons.timer),
                 const SizedBox(height: 12),
-                _buildSimpleStatTile("Avg. Solve Time", _formatTime(_stats!["avgSpeed"]), Icons.speed),
+                _buildSimpleStatTile(AppLocalizations.of(context)!.avgSolveTime, _formatTime(_stats!["avgSpeed"]), Icons.speed),
               ],
             ),
     );

@@ -61,7 +61,8 @@ import 'app_localizations_en.dart';
 /// be consistent with the languages listed in the AppLocalizations.supportedLocales
 /// property.
 abstract class AppLocalizations {
-  AppLocalizations(String locale) : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+  AppLocalizations(String locale)
+    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -69,7 +70,8 @@ abstract class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
-  static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
+  static const LocalizationsDelegate<AppLocalizations> delegate =
+      _AppLocalizationsDelegate();
 
   /// A list of this localizations delegate along with the default localizations
   /// delegates.
@@ -81,17 +83,16 @@ abstract class AppLocalizations {
   /// Additional delegates can be added by appending to this list in
   /// MaterialApp. This list does not have to be used at all if a custom list
   /// of delegates is preferred or required.
-  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = <LocalizationsDelegate<dynamic>>[
-    delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-  ];
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
+      <LocalizationsDelegate<dynamic>>[
+        delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[
-    Locale('en')
-  ];
+  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
 
   /// The main title of the application
   ///
@@ -105,11 +106,47 @@ abstract class AppLocalizations {
   /// **'Play'**
   String get playButton;
 
-  /// Button to continue an existing game session
+  /// Button to continue an ongoing game level
   ///
   /// In en, this message translates to:
-  /// **'Resume'**
-  String get resumeButton;
+  /// **'Continue'**
+  String get continueButton;
+
+  /// game text
+  ///
+  /// In en, this message translates to:
+  /// **'Solve puzzles. Train your brain.'**
+  String get footerText;
+
+  /// Message shown when a user tries to access a locked world
+  ///
+  /// In en, this message translates to:
+  /// **'Complete previous world to unlock'**
+  String get worldLockedMessage;
+
+  /// Message shown when a user tries to access a locked level
+  ///
+  /// In en, this message translates to:
+  /// **'Complete previous levels first!'**
+  String get levelLockedMessage;
+
+  /// Label for the hint feature
+  ///
+  /// In en, this message translates to:
+  /// **'Hint'**
+  String get hintButton;
+
+  /// world Text
+  ///
+  /// In en, this message translates to:
+  /// **'World'**
+  String get worldText;
+
+  /// Level Text
+  ///
+  /// In en, this message translates to:
+  /// **'Level'**
+  String get levelText;
 
   /// Button to open the settings menu
   ///
@@ -117,35 +154,23 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get settingsButton;
 
-  /// Button to close the application
+  /// Button to edit name
   ///
   /// In en, this message translates to:
-  /// **'Exit'**
-  String get exitButton;
+  /// **'Tap to edit'**
+  String get editNameButton;
 
-  /// Title for the world selection screen
+  /// Link text for the privacy policy
   ///
   /// In en, this message translates to:
-  /// **'Select World'**
-  String get worldSelectionTitle;
+  /// **'Privacy Policy'**
+  String get privacyPolicy;
 
-  /// Message shown when a user tries to access a locked world
+  /// Link text for terms and conditions
   ///
   /// In en, this message translates to:
-  /// **'Unlock previous world to enter'**
-  String get worldLockedMessage;
-
-  /// Shows the completion percentage of a world
-  ///
-  /// In en, this message translates to:
-  /// **'World Progress: {percentage}%'**
-  String worldCompletion(int percentage);
-
-  /// Label indicating the current level number
-  ///
-  /// In en, this message translates to:
-  /// **'Level {number}'**
-  String levelLabel(int number);
+  /// **'Terms & Conditions'**
+  String get termsConditions;
 
   /// Celebratory text shown when a puzzle is solved
   ///
@@ -168,26 +193,56 @@ abstract class AppLocalizations {
   /// Button to restart the current level
   ///
   /// In en, this message translates to:
-  /// **'Try Again'**
-  String get tryAgainButton;
+  /// **'Replay Level'**
+  String get replaynButton;
 
-  /// Displays the elapsed time for the current game
+  /// Button to return to level map
   ///
   /// In en, this message translates to:
-  /// **'Time: {minutes}:{seconds}'**
-  String timerLabel(String minutes, String seconds);
+  /// **'Back to Level Map'**
+  String get backToLevelMapButton;
 
-  /// Displays the number of incorrect moves made
+  /// world complete text
   ///
   /// In en, this message translates to:
-  /// **'Mistakes: {count}/3'**
-  String mistakesLabel(int count);
+  /// **'🎉 World Complete!'**
+  String get worldComplete;
 
-  /// Label for the hint feature
+  /// Lifetime Statistics
   ///
   /// In en, this message translates to:
-  /// **'Hint'**
-  String get hintButton;
+  /// **'Lifetime Statistics'**
+  String get lifeTimeStatistics;
+
+  /// Total Time Played
+  ///
+  /// In en, this message translates to:
+  /// **'Total Time Played'**
+  String get totalTimePlayed;
+
+  /// Avg. Solve Time
+  ///
+  /// In en, this message translates to:
+  /// **'Avg. Solve Time'**
+  String get avgSolveTime;
+
+  /// Button to close the application
+  ///
+  /// In en, this message translates to:
+  /// **'Exit'**
+  String get exitButton;
+
+  /// Title for the world selection screen
+  ///
+  /// In en, this message translates to:
+  /// **'Select World'**
+  String get worldSelectionTitle;
+
+  /// Shows the completion percentage of a world
+  ///
+  /// In en, this message translates to:
+  /// **'World Progress: {percentage}%'**
+  String worldCompletion(int percentage);
 
   /// Label for the undo move button
   ///
@@ -200,12 +255,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Erase'**
   String get eraseButton;
-
-  /// Label for the pencil/notes mode toggle
-  ///
-  /// In en, this message translates to:
-  /// **'Notes'**
-  String get notesButton;
 
   /// Label for easy difficulty
   ///
@@ -224,27 +273,10 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Hard'**
   String get difficultyHard;
-
-  /// Label for expert difficulty
-  ///
-  /// In en, this message translates to:
-  /// **'Expert'**
-  String get difficultyExpert;
-
-  /// Link text for the privacy policy
-  ///
-  /// In en, this message translates to:
-  /// **'Privacy Policy'**
-  String get privacyPolicy;
-
-  /// Link text for terms and conditions
-  ///
-  /// In en, this message translates to:
-  /// **'Terms & Conditions'**
-  String get termsConditions;
 }
 
-class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
@@ -253,24 +285,24 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
   }
 
   @override
-  bool isSupported(Locale locale) => <String>['en'].contains(locale.languageCode);
+  bool isSupported(Locale locale) =>
+      <String>['en'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
-
-
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
-    case 'en': return AppLocalizationsEn();
+    case 'en':
+      return AppLocalizationsEn();
   }
 
   throw FlutterError(
     'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
     'an issue with the localizations generation tool. Please file an issue '
     'on GitHub with a reproducible sample app and the gen-l10n configuration '
-    'that was used.'
+    'that was used.',
   );
 }
