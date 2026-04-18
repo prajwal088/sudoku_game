@@ -81,8 +81,8 @@
     "description": "Button to progress to the next puzzle"
   },
 
-  "replaynButton": "Replay Level",
-  "@replaynButton": {
+  "replayButton": "Replay Level",
+  "@replayButton": {
     "description": "Button to restart the current level"
   },
 

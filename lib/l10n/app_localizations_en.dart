@@ -57,7 +57,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get nextLevelButton => 'Next Level';
 
   @override
-  String get replaynButton => 'Replay Level';
+  String get replayButton => 'Replay Level';
 
   @override
   String get backToLevelMapButton => 'Back to Level Map';

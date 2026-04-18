@@ -221,8 +221,9 @@ class _WinScreenState extends State<WinScreen>
                   /// --- Navigation Buttons ---
                   /// Using a ConstrainedBox ensures all buttons have a consistent look
                   ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 220),
+                    constraints: const BoxConstraints(minWidth: 220, maxWidth: 300),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         /// --- Primary Action: Next Level / Next World ---
                         if (_isReplay)
@@ -268,7 +269,7 @@ class _WinScreenState extends State<WinScreen>
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(color: Colors.blue.shade300, width: 2),
                             ),
-                            child: Text(AppLocalizations.of(context)!.replaynButton, style: TextStyle(fontSize: 16)),
+                            child: Text(AppLocalizations.of(context)!.replayButton, style: TextStyle(fontSize: 16)),
                           ),
                         ),
 

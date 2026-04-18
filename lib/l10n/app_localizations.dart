@@ -194,7 +194,7 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Replay Level'**
-  String get replaynButton;
+  String get replayButton;
 
   /// Button to return to level map
   ///
