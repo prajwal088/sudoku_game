@@ -152,7 +152,6 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       _loadProgress(); // This refreshes your stars and locks!
     }
   }
-  */
 
   /// ==========================================================================
   /// UI

@@ -164,6 +164,7 @@ class _GameScreenState extends State<GameScreen>
             candidates.add({"r": r, "c": c});
           }
         }
+      }
 
       if (candidates.isEmpty) {
         _showToast("Board is already correct!");
