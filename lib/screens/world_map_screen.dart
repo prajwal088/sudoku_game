@@ -1,25 +1,32 @@
 import 'package:flutter/material.dart';
+
 import 'package:sudoku_game/main.dart';
 
-import '../widgets/world_tile.dart';
 import '../services/progress_service.dart';
-
+import '../widgets/world_tile.dart';
 
 /// ============================================================================
 /// WorldMapScreen
 /// ----------------------------------------------------------------------------
-/// Displays all available worlds in a grid format.
+/// Displays all available worlds in a grid.
 ///
 /// Responsibilities:
-/// - Show locked/unlocked worlds
-/// - Display stars per world
-/// - Navigate to LevelMapScreen
+/// - Display locked and unlocked worlds.
+/// - Display stars earned in each world.
+/// - Navigate to the selected world's level map.
+/// - Refresh progress when returning from a level map.
+/// - Handle loading and storage errors safely.
 ///
 /// Architecture:
-/// - ProgressService → source of truth for unlocks & stars
-/// - UI reacts to progress state
+/// - ProgressService is the source of truth for progression.
+/// - WorldMapScreen owns only UI state.
+/// - WorldTile is responsible for rendering an individual world.
+///
+/// IMPORTANT:
+/// - WorldMapScreen works with WORLD numbers only.
+/// - LevelMapScreen/GameScreen should handle LEVEL numbers.
+/// - There is no local/global level conversion in this screen.
 /// ============================================================================
-
 class WorldMapScreen extends StatefulWidget {
   const WorldMapScreen({super.key});
 
@@ -28,120 +35,256 @@ class WorldMapScreen extends StatefulWidget {
 }
 
 class _WorldMapScreenState extends State<WorldMapScreen> {
-  /// Total worlds in game (can be dynamic in future)
-  static const int totalWorlds = 10;
+  /// ==========================================================================
+  /// CONFIGURATION
+  /// ==========================================================================
 
-  /// Progress service (single source of truth)
+  /// Total number of worlds currently available in the game.
+  ///
+  /// Keep this here for now to avoid changing other files unexpectedly.
+  ///
+  /// Later, this can be moved to a central game configuration if the number of
+  /// worlds becomes dynamic.
+  static const int _totalWorlds = 10;
+
+  /// ==========================================================================
+  /// SERVICES
+  /// ==========================================================================
+
   final ProgressService _progressService = ProgressService();
 
-  /// Highest unlocked world (from storage)
-  int highestUnlockedWorld = 1;
+  /// ==========================================================================
+  /// UI STATE
+  /// ==========================================================================
 
-  /// Stars collected per world → {world: stars}
-  Map<int, int> worldStars = {};
+  /// Highest world currently unlocked by the player.
+  int _highestUnlockedWorld = 1;
 
-  /// UI state flags
-  bool loading = true;
+  /// Total stars earned in each world.
+  ///
+  /// Example:
+  /// {
+  ///   1: 42,
+  ///   2: 18,
+  ///   3: 0,
+  /// }
+  Map<int, int> _worldStars = <int, int>{};
+
+  /// Shows the full-screen loading state during the initial load.
+  bool _isInitialLoading = true;
+
+  /// Prevents multiple simultaneous progress loads.
   bool _isLoading = false;
+
+  /// ==========================================================================
+  /// LIFECYCLE
+  /// ==========================================================================
 
   @override
   void initState() {
     super.initState();
+
     _loadProgress();
   }
 
   /// ==========================================================================
-  /// LOAD PROGRESS (OPTIMIZED + SAFE)
+  /// LOAD PROGRESS
   /// ==========================================================================
-  /// ==========================================================================
-  /// LOAD PROGRESS (UPDATED & FIXED)
-  /// ==========================================================================
+
+  /// Loads:
+  /// - highest unlocked world
+  /// - stars earned in each world
+  ///
+  /// Both operations are independent, so they are executed in parallel.
+  ///
+  /// Initial load:
+  /// - Displays a full-screen progress indicator.
+  ///
+  /// Subsequent loads:
+  /// - Refresh data silently.
+  /// - Prevents the world map from flashing a loading screen when the player
+  ///   returns from LevelMapScreen.
   Future<void> _loadProgress() async {
-  // Prevent multiple simultaneous loads
-  if (_isLoading) return;
+    if (_isLoading) return;
 
-  setState(() {
     _isLoading = true;
-    // Only show full-screen loader if we have no data yet
-    if (worldStars.isEmpty) loading = true;
-  });
 
-  try {
-      // 1. Run both heavy data fetches in parallel using Future.wait
-      // This performs ONE disk read and ONE JSON decode for everything.
-      final results = await Future.wait([
+    try {
+      final results = await Future.wait<dynamic>([
         _progressService.getHighestUnlockedWorld(),
-        _progressService.getAllWorldStars(totalWorlds),
+        _progressService.getAllWorldStars(_totalWorlds),
       ]);
 
-      // 2. Extract results with type safety
       final int unlockedWorld = results[0] as int;
-      final Map<int, int> tempStarsMap = results[1] as Map<int, int>;
 
-    if (!mounted) return;
+      final Map<int, int> stars = Map<int, int>.from(
+        results[1] as Map<int, int>,
+      );
 
-    setState(() {
-      highestUnlockedWorld = unlockedWorld;
-      worldStars = tempStarsMap;
-      loading = false;
-      _isLoading = false;
-    });
-  } catch (e) {
-    debugPrint("WorldMapScreen Error: $e");
-    if (mounted) {
+      if (!mounted) return;
+
       setState(() {
-        loading = false;
-        _isLoading = false;
+        _highestUnlockedWorld = unlockedWorld.clamp(1, _totalWorlds);
+
+        _worldStars = stars;
+
+        _isInitialLoading = false;
       });
+    } catch (e, stackTrace) {
+      debugPrint('WorldMapScreen: failed to load progress: $e');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        _isInitialLoading = false;
+      });
+
+      _showErrorMessage();
+    } finally {
+      _isLoading = false;
     }
   }
-}
 
   /// ==========================================================================
   /// WORLD TAP HANDLER
   /// ==========================================================================
+
   Future<void> _onWorldTap(int worldNumber, bool isLocked) async {
+    if (!mounted) return;
+
     if (isLocked) {
-      _showLockedMessage(context);
+      _showLockedMessage();
       return;
     }
 
-    await Navigator.pushNamed(
-      context,
-      AppRoutes.levels,
-      arguments: worldNumber,
-    );
+    try {
+      await Navigator.pushNamed(
+        context,
+        AppRoutes.levels,
+        arguments: worldNumber,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('WorldMapScreen: failed to open world $worldNumber: $e');
 
-    /// Refresh progress after returning
-    if (mounted) {
-      _loadProgress();
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Could not open this world.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+      return;
     }
+
+    if (!mounted) return;
+
+    /// Refresh progress after returning from LevelMapScreen.
+    ///
+    /// The player may have completed the final level of a world and unlocked
+    /// the next world while inside the level map/game.
+    await _loadProgress();
   }
 
   /// ==========================================================================
-  /// UI
+  /// WORLD STATE HELPERS
   /// ==========================================================================
+
+  bool _isWorldLocked(int worldNumber) {
+    return worldNumber > _highestUnlockedWorld;
+  }
+
+  int _getWorldStars(int worldNumber) {
+    if (_isWorldLocked(worldNumber)) {
+      return 0;
+    }
+
+    final stars = _worldStars[worldNumber] ?? 0;
+
+    return stars.clamp(0, _maxStarsPerWorld);
+  }
+
+  /// Maximum possible stars for one world.
+  int get _maxStarsPerWorld {
+    return ProgressService.levelsPerWorld * 3;
+  }
+
+  /// ==========================================================================
+  /// WORLD COLOR
+  /// ==========================================================================
+
+  Color _getWorldColor(bool isLocked, int starsEarned) {
+    if (isLocked) {
+      return Colors.grey.shade300;
+    }
+
+    if (starsEarned >= _maxStarsPerWorld) {
+      return Colors.green.shade400;
+    }
+
+    return Colors.orange.shade400;
+  }
+
+  /// ==========================================================================
+  /// USER FEEDBACK
+  /// ==========================================================================
+
+  void _showLockedMessage() {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Complete the previous world to unlock this world.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _showErrorMessage() {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Could not load your world progress.'),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(label: 'Retry', onPressed: _loadProgress),
+        ),
+      );
+  }
+
+  /// ==========================================================================
+  /// BUILD
+  /// ==========================================================================
+
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+    if (_isInitialLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Select World'), centerTitle: true),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Select World"),
-        centerTitle: true,
-      ),
-
-      /// ================= WORLD GRID =================
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      appBar: AppBar(title: const Text('Select World'), centerTitle: true),
+      body: RefreshIndicator(
+        onRefresh: _loadProgress,
         child: GridView.builder(
-          itemCount: totalWorlds,
-          gridDelegate:
-              const SliverGridDelegateWithFixedCrossAxisCount(
+          padding: const EdgeInsets.all(16),
+          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: _totalWorlds,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 16,
             crossAxisSpacing: 16,
@@ -150,66 +293,20 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
           itemBuilder: (context, index) {
             final int worldNumber = index + 1;
 
-            /// Determine lock state using progress
-            final bool isLocked =
-                worldNumber > highestUnlockedWorld;
+            final bool isLocked = _isWorldLocked(worldNumber);
 
-            /// Stars earned in this world
-            final int stars =
-                isLocked ? 0 : (worldStars[worldNumber] ?? 0);
+            final int starsEarned = _getWorldStars(worldNumber);
 
             return WorldTile(
               worldNumber: worldNumber,
               isLocked: isLocked,
-
-              /// Stars earned
-              starsEarned: stars,
-
-              /// Total possible stars (derived from ProgressService)
-              totalStars:
-                  ProgressService.levelsPerWorld * 3,
-
-              /// Dynamic color based on progress
-              color: _getWorldColor(worldNumber, isLocked, stars),
-
-              /// Tap handler
-              onTap: () =>
-                  _onWorldTap(worldNumber, isLocked),
+              starsEarned: starsEarned,
+              totalStars: _maxStarsPerWorld,
+              color: _getWorldColor(isLocked, starsEarned),
+              onTap: () => _onWorldTap(worldNumber, isLocked),
             );
           },
         ),
-      ),
-    );
-  }
-
-  /// ==========================================================================
-  /// WORLD COLOR LOGIC
-  /// ==========================================================================
-  Color _getWorldColor(
-      int world, bool isLocked, int starsEarned) {
-    if (isLocked) {
-      return Colors.grey.shade300;
-    }
-
-    final int maxStars =
-        ProgressService.levelsPerWorld * 3;
-
-    /// Fully completed world
-    if (starsEarned >= maxStars) {
-      return Colors.green.shade400;
-    }
-
-    /// In-progress world
-    return Colors.orange.shade400;
-  }
-
-  /// ==========================================================================
-  /// LOCK MESSAGE
-  /// ==========================================================================
-  void _showLockedMessage(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Complete previous world to unlock"),
       ),
     );
   }

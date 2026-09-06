@@ -1,20 +1,36 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../main.dart';
 import '../services/progress_service.dart';
-import 'world_map_screen.dart';
-import 'dart:async';
 
 /// ============================================================================
 /// HomeScreen
 /// ----------------------------------------------------------------------------
-/// Entry point of the game UI.
+/// Main entry point of the Sudoku application.
+///
 /// Responsibilities:
-/// - Show Continue button (next playable level)
-/// - Navigate to GameScreen using correct world + level mapping
-/// - Navigate to World Map
-/// - Display basic UI & animations
+/// - Display the player's next playable level.
+/// - Continue directly to the next unlocked global level.
+/// - Open the World Map.
+/// - Open Statistics and Settings.
+/// - Refresh automatically when progress changes.
+///
+/// ARCHITECTURE
+/// ----------------------------------------------------------------------------
+/// A level has ONE canonical identifier:
+///
+///     global levelNumber
+///
+/// World/local level information is derived by ProgressService when required.
+///
+/// Navigation to GameScreen always uses:
+///
+///     GameArguments(levelNumber: ...)
+///
+/// The world is NEVER passed as a GameArguments parameter.
 /// ============================================================================
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,233 +40,372 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
+  final ProgressService _progressService = ProgressService();
 
-  // Define the subscription variable
-  StreamSubscription? _progressSubscription;
+  StreamSubscription<void>? _progressSubscription;
 
-  /// Service layer (handles all progression logic)
-  final ProgressService progressService = ProgressService();
+  late final AnimationController _continueAnimationController;
+  late final Animation<double> _continueScaleAnimation;
 
-  /// Animation controller for Continue button
-  late AnimationController controller;
-  late Animation<double> scaleAnimation;
+  /// The next playable global level.
+  int _nextLevel = 1;
 
-  /// Stores NEXT playable GLOBAL level
-  int nextLevel = 1;
+  bool _isLoading = true;
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
 
-    _loadProgress();
-
-    // 🎧 Start listening for updates
-  _progressSubscription = progressService.onProgressUpdate.listen((_) {
-    if (mounted) {
-      debugPrint("Home Screen detected progress update! Refreshing...");
-      _loadProgress();
-    }
-  });
-
-    /// Initialize animation
-    controller = AnimationController(
+    _continueAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
 
-    scaleAnimation = Tween<double>(
-      begin: 0.9,
-      end: 1,
-    ).animate(
+    _continueScaleAnimation = Tween<double>(begin: 0.96, end: 1.0).animate(
       CurvedAnimation(
-        parent: controller,
+        parent: _continueAnimationController,
         curve: Curves.easeInOut,
       ),
     );
 
-    controller.repeat(reverse: true);
-  }
+    _continueAnimationController.repeat(reverse: true);
 
-  /// ==========================================================================
-  /// LOAD USER PROGRESS
-  /// ==========================================================================
-  Future<void> _loadProgress() async {
-    int level = await progressService.getNextUnlockedLevel();
+    _loadProgress();
 
-    if (!mounted) return;
+    /// Refresh the home screen whenever progression changes elsewhere.
+    _progressSubscription = _progressService.onProgressUpdate.listen((_) {
+      if (!mounted) return;
 
-    setState(() {
-      nextLevel = level;
+      debugPrint('HomeScreen: progress update received. Refreshing...');
+
+      _loadProgress();
     });
   }
 
-  @override
-  void dispose() {
-    _progressSubscription?.cancel();  // Stop listening to prevent memory leaks
-    controller.dispose();
-    super.dispose();
+  /// ==========================================================================
+  /// LOAD PROGRESS
+  /// ==========================================================================
+
+  Future<void> _loadProgress() async {
+    try {
+      final int level = await _progressService.getNextUnlockedLevel();
+
+      if (!mounted) return;
+
+      setState(() {
+        _nextLevel = level < 1 ? 1 : level;
+        _isLoading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('HomeScreen: failed to load progress: $error');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      _showMessage('Could not load your progress.');
+    }
   }
 
   /// ==========================================================================
-  /// CONTINUE BUTTON HANDLER (PRODUCTION SAFE)
+  /// CONTINUE
   /// ==========================================================================
+
   Future<void> _handleContinue() async {
-    /// Step 1: Get next unlocked GLOBAL level
-    int globalLevel = await progressService.getNextUnlockedLevel();
+    if (_isLoading || _isNavigating) return;
 
-    if (!mounted) return;
+    setState(() {
+      _isNavigating = true;
+    });
 
-    /// Safety guard (prevents invalid navigation)
-    if (globalLevel < 1) return;
+    try {
+      /// Always ask ProgressService for the current source of truth.
+      final int globalLevel = await _progressService.getNextUnlockedLevel();
 
-    /// Step 2: Convert → world + level using SERVICE (single source of truth)
-    final data = progressService.getWorldAndLevel(globalLevel);
+      if (!mounted) return;
 
-    int world = data["world"]!;
+      /// Safety validation.
+      if (globalLevel < 1 || globalLevel > GameConfig.totalLevels) {
+        _showMessage('No playable level is currently available.');
+        return;
+      }
 
-/*
-    /// Debug log (remove in release if needed)
-    // ignore: avoid_print
-    print("Continue → Global: $globalLevel | World: $world | Level: $level");
-*/
+      /// GameArguments intentionally contains ONLY the global level ID.
+      await Navigator.pushNamed(
+        context,
+        AppRoutes.game,
+        arguments: GameArguments(levelNumber: globalLevel),
+      );
 
-    /// Step 3: Navigate to GameScreen
-    await Navigator.pushNamed(
-      context,
-      "/game",
-      arguments: {
-        "levelNumber": globalLevel,   // Send the unique Global ID (1-250)
-        "world": world,   // World number
-      },
-    );
+      if (!mounted) return;
 
-    /// Step 4: Reload progress after returning
-    if (mounted) {
-      debugPrint("Returned to Home. Re-loading progress...");
+      /// The player may have completed a level.
+      /// Reload the displayed Continue level.
       await _loadProgress();
+    } catch (error, stackTrace) {
+      debugPrint('HomeScreen: failed to continue to level: $error');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      _showMessage('Could not open the level.');
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _isNavigating = false;
+      });
     }
   }
 
   /// ==========================================================================
-  /// OPEN WORLD MAP
+  /// WORLD MAP
   /// ==========================================================================
-  Future<void> _openLevelMap() async {
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const WorldMapScreen(),
-      ),
-    );
 
-    if (mounted) {
+  Future<void> _openWorldMap() async {
+    if (_isNavigating) return;
+
+    setState(() {
+      _isNavigating = true;
+    });
+
+    try {
+      await Navigator.pushNamed(context, AppRoutes.worlds);
+
+      if (!mounted) return;
+
+      /// Progress may have changed while the player was viewing the map.
       await _loadProgress();
+    } catch (error, stackTrace) {
+      debugPrint('HomeScreen: failed to open world map: $error');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      _showMessage('Could not open the World Map.');
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _isNavigating = false;
+      });
     }
   }
 
   /// ==========================================================================
-  /// UI
+  /// USER FEEDBACK
   /// ==========================================================================
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  /// ==========================================================================
+  /// BUILD
+  /// ==========================================================================
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              /// GAME ICON
-              const Icon(
-                Icons.grid_on,
-                size: 120,
-                color: Colors.blue,
-              ),
-
-              const SizedBox(height: 10),
-
-              /// TITLE
-              const Text(
-                "Sudoku",
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              /// CONTINUE BUTTON
-              ScaleTransition(
-                scale: scaleAnimation,
-                child: ElevatedButton(
-                  onPressed: _handleContinue,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 70,
-                      vertical: 16,
-                    ),
-                  ),
-                  child: Text(
-                    "Continue (Level $nextLevel)", // shows GLOBAL level
-                    style: const TextStyle(fontSize: 18),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 15),
-
-              /// PLAY BUTTON (opens world map)
-              OutlinedButton(
-                onPressed: _openLevelMap,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 80,
-                    vertical: 16,
-                  ),
-                ),
-                child: const Text(
-                  "Play",
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              /// EXTRA OPTIONS
-              Row(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.bar_chart, size: 28),
-                    onPressed: () {
-                      Navigator.pushNamed(context, "/statistics");
-                    },
+                  /// ==========================================================
+                  /// GAME ICON
+                  /// ==========================================================
+                  Icon(
+                    Icons.grid_on,
+                    size: 120,
+                    color: theme.colorScheme.primary,
                   ),
 
-                  const SizedBox(width: 20),
+                  const SizedBox(height: 10),
 
-                  IconButton(
-                    icon: const Icon(Icons.settings, size: 28),
-                    onPressed: () {
-                      Navigator.pushNamed(context, "/settings");
-                    },
+                  /// ==========================================================
+                  /// TITLE
+                  /// ==========================================================
+                  Text(
+                    'Sudoku',
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Solve puzzles. Train your brain.',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  /// ==========================================================
+                  /// CONTINUE BUTTON
+                  /// ==========================================================
+                  ScaleTransition(
+                    scale: _continueScaleAnimation,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading || _isNavigating
+                            ? null
+                            : _handleContinue,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 17),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                'Continue • Level $_nextLevel',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  /// ==========================================================
+                  /// WORLD MAP
+                  /// ==========================================================
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: _isNavigating ? null : _openWorldMap,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text(
+                        'World Map',
+                        style: TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  /// ==========================================================
+                  /// SECONDARY OPTIONS
+                  /// ==========================================================
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildSecondaryAction(
+                        context: context,
+                        icon: Icons.bar_chart,
+                        label: 'Statistics',
+                        onPressed: _isNavigating
+                            ? null
+                            : () {
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.statistics,
+                                );
+                              },
+                      ),
+
+                      const SizedBox(width: 32),
+
+                      _buildSecondaryAction(
+                        context: context,
+                        icon: Icons.settings,
+                        label: 'Settings',
+                        onPressed: _isNavigating
+                            ? null
+                            : () {
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.settings,
+                                );
+                              },
+                      ),
+                    ],
                   ),
                 ],
               ),
-
-              const SizedBox(height: 20),
-
-              /// FOOTER
-              const Text(
-                "Solve puzzles. Train your brain.",
-                style: TextStyle(
-                  color: Colors.grey,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  /// ==========================================================================
+  /// SECONDARY ACTION
+  /// ==========================================================================
+
+  Widget _buildSecondaryAction({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: label,
+          icon: Icon(icon, size: 28),
+          onPressed: onPressed,
+        ),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// ==========================================================================
+  /// DISPOSE
+  /// ==========================================================================
+
+  @override
+  void dispose() {
+    _progressSubscription?.cancel();
+    _continueAnimationController.dispose();
+
+    super.dispose();
   }
 }

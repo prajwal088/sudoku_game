@@ -1,361 +1,775 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
 
-import '../models/level.dart';
-import '../models/sudoku_board.dart';
-
-import '../services/level_service.dart';
-import '../services/progress_service.dart';
-
-import '../widgets/sudoku_grid.dart';
-import '../widgets/number_pad.dart';
+import 'package:flutter/material.dart';
 
 import '../logic/sudoku_validator.dart';
-
+import '../models/level.dart';
+import '../models/sudoku_board.dart';
+import '../services/level_service.dart';
+import '../services/progress_service.dart';
+import '../widgets/number_pad.dart';
+import '../widgets/sudoku_grid.dart';
 import 'win_screen.dart';
 
 /// ============================================================================
 /// GameScreen
-/// ----------------------------------------------------------------------------
-/// Core gameplay screen.
-/// Handles:
-/// - Sudoku board rendering
-/// - User input
-/// - Timer management
-/// - Hint & undo system
-/// - Win detection & navigation
 /// ============================================================================
-
+///
+/// Core Sudoku gameplay screen.
+///
+/// A level has ONE identity:
+///
+///     levelNumber
+///
+/// The world is derived from the global level number when required.
+///
+/// Responsibilities:
+/// - Load the selected Sudoku level.
+/// - Render the Sudoku board.
+/// - Handle player input.
+/// - Handle hints and undo.
+/// - Track gameplay time.
+/// - Detect successful completion.
+/// - Save progress.
+/// - Navigate to WinScreen.
+///
+/// Progression identity is intentionally based only on [levelNumber].
 class GameScreen extends StatefulWidget {
   final int levelNumber;
-  final int world;
 
-  const GameScreen({
-    super.key,
-    required this.levelNumber,
-    required this.world,
-  });
+  const GameScreen({super.key, required this.levelNumber});
 
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
-    with WidgetsBindingObserver {
-  final LevelService levelService = LevelService();
-  final ProgressService progressService = ProgressService();
+/// Represents one reversible board change.
+class _Move {
+  final int row;
+  final int col;
+  final int previousValue;
 
-  late SudokuBoard board;
-  late Level level;
+  const _Move({
+    required this.row,
+    required this.col,
+    required this.previousValue,
+  });
+}
 
-  /// Selected cell
-  int selectedRow = -1;
-  int selectedCol = -1;
+class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
+  /// ==========================================================================
+  /// SERVICES
+  /// ==========================================================================
 
-  /// Undo stack
-  final List<Map<String, dynamic>> history = [];
+  final LevelService _levelService = LevelService();
+  final ProgressService _progressService = ProgressService();
 
-  // TODO: Update hint when creating builds
-  /// Hint tracking
-  final Set<String> hintedCells = {};
-  int hintsRemaining = 1000; // Production feature: limited hints
+  /// ==========================================================================
+  /// GAME STATE
+  /// ==========================================================================
 
-  /// Timer State
+  late SudokuBoard _board;
+  late Level _level;
+
+  /// Derived world number.
+  ///
+  /// This is NOT passed into GameScreen navigation.
+  int get _world => _progressService.getWorldFromGlobal(widget.levelNumber);
+
+  /// ==========================================================================
+  /// SELECTION
+  /// ==========================================================================
+
+  int _selectedRow = -1;
+  int _selectedCol = -1;
+
+  /// ==========================================================================
+  /// UNDO
+  /// ==========================================================================
+
+  static const int _maxHistorySize = 20;
+
+  final List<_Move> _history = <_Move>[];
+
+  /// ==========================================================================
+  /// HINTS
+  /// ==========================================================================
+
+  /// Cells that were filled by a hint.
+  ///
+  /// Hinted cells cannot be manually changed afterward.
+  final Set<String> _hintedCells = <String>{};
+
+  /// TODO:
+  /// Move this value to a centralized game configuration or player inventory
+  /// service once the hint economy is implemented.
+  int _hintsRemaining = 1000;
+
+  /// ==========================================================================
+  /// TIMER
+  /// ==========================================================================
+
   Timer? _timer;
-  int _secondsElapsed = 0;
-  /// bool _isRunning = false;
-  bool _isLoading = true;
 
-  /// Lifecycle
-  DateTime? pausedAt;
+  int _secondsElapsed = 0;
+
+  /// ==========================================================================
+  /// SCREEN STATE
+  /// ==========================================================================
+
+  bool _isLoading = true;
+  bool _isCompleting = false;
+
+  String? _errorMessage;
+
+  /// Prevents lifecycle events from restarting the timer after completion.
+  bool _isGameFinished = false;
+
+  /// ==========================================================================
+  /// LIFECYCLE
+  /// ==========================================================================
 
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
+
     _loadLevel();
   }
 
   @override
   void dispose() {
     _stopTimer();
+
     WidgetsBinding.instance.removeObserver(this);
+
     super.dispose();
   }
 
-  // Handle app background/foreground
+  /// ==========================================================================
+  /// APP LIFECYCLE
+  /// ==========================================================================
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _stopTimer();
-    } else if (state == AppLifecycleState.resumed) {
-      _startTimer();
+    if (_isGameFinished || _isLoading) {
+      return;
+    }
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _startTimer();
+        break;
+
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        _stopTimer();
+        break;
     }
   }
 
   /// ==========================================================================
-  /// LOAD LEVEL (CORE LOGIC)
+  /// LOAD LEVEL
   /// ==========================================================================
+
   Future<void> _loadLevel() async {
     try {
-      level = await levelService.getLevel(widget.levelNumber);
-
-      board = SudokuBoard.fromPuzzle(
-        level.puzzle,
-        level.solution,
+      final Level loadedLevel = await _levelService.getLevel(
+        widget.levelNumber,
       );
+
+      final SudokuBoard loadedBoard = SudokuBoard.fromPuzzle(
+        loadedLevel.puzzle,
+        loadedLevel.solution,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _level = loadedLevel;
+        _board = loadedBoard;
+        _isLoading = false;
+        _errorMessage = null;
+      });
+
+      _startTimer();
+    } catch (e, stackTrace) {
+      debugPrint('GameScreen: failed to load level ${widget.levelNumber}: $e');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isLoading = false;
+        _errorMessage = 'Could not load this level.';
       });
-      _startTimer();
-    } catch (e) {
-      debugPrint("GameScreen Load Error: $e");
-      if (mounted) Navigator.pop(context);
     }
   }
 
   /// ==========================================================================
-  /// TIMER MANAGEMENT
+  /// TIMER
   /// ==========================================================================
-  void _startTimer() {
-    if (_timer?.isActive ?? false) return;  // Prevent multiple timers
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _secondsElapsed++;
-        });
+  void _startTimer() {
+    if (_isGameFinished || _isLoading) {
+      return;
+    }
+
+    if (_timer?.isActive ?? false) {
+      return;
+    }
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _isGameFinished) {
+        _stopTimer();
+        return;
       }
+
+      setState(() {
+        _secondsElapsed++;
+      });
     });
   }
 
   void _stopTimer() {
     _timer?.cancel();
+    _timer = null;
   }
 
-// ==========================================================================
-  // HINT LOGIC (IMPROVED)
-  // ==========================================================================
-  void giveHint() {
-    if (hintsRemaining <= 0) {
-      _showToast("No hints remaining!");
+  /// ==========================================================================
+  /// CELL SELECTION
+  /// ==========================================================================
+
+  void _selectCell(int row, int col) {
+    if (!_isValidCell(row, col)) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedRow = row;
+      _selectedCol = col;
+    });
+  }
+
+  bool _isValidCell(int row, int col) {
+    return row >= 0 && row < 9 && col >= 0 && col < 9;
+  }
+
+  bool _hasValidSelection() {
+    if (!_isValidCell(_selectedRow, _selectedCol)) {
+      return false;
+    }
+
+    return !_board.fixed[_selectedRow][_selectedCol];
+  }
+
+  String _cellKey(int row, int col) {
+    return '$row-$col';
+  }
+
+  /// ==========================================================================
+  /// INPUT
+  /// ==========================================================================
+
+  /// Handles a number selected from the number pad.
+  void _inputNumber(int number) {
+    if (_isGameFinished || _isCompleting) {
+      return;
+    }
+
+    if (!_hasValidSelection()) {
+      return;
+    }
+
+    final String key = _cellKey(_selectedRow, _selectedCol);
+
+    /// Hinted cells are protected from manual modification.
+    if (_hintedCells.contains(key)) {
+      _showMessage('This cell was filled by a hint.');
+      return;
+    }
+
+    _saveHistory();
+
+    setState(() {
+      _board.setNumber(_selectedRow, _selectedCol, number);
+    });
+
+    _checkWin();
+  }
+
+  /// ==========================================================================
+  /// ERASE
+  /// ==========================================================================
+
+  void _eraseSelectedCell() {
+    if (_isGameFinished || _isCompleting) {
+      return;
+    }
+
+    if (!_hasValidSelection()) {
+      return;
+    }
+
+    final String key = _cellKey(_selectedRow, _selectedCol);
+
+    /// Hints are intentionally protected.
+    if (_hintedCells.contains(key)) {
+      _showMessage('Hinted cells cannot be erased.');
+      return;
+    }
+
+    final int currentValue = _board.board[_selectedRow][_selectedCol];
+
+    /// Nothing to erase.
+    if (currentValue == 0) {
+      return;
+    }
+
+    _saveHistory();
+
+    setState(() {
+      _board.clearCell(_selectedRow, _selectedCol);
+    });
+  }
+
+  /// ==========================================================================
+  /// UNDO
+  /// ==========================================================================
+
+  void _undoMove() {
+    if (_isGameFinished || _isCompleting) {
+      return;
+    }
+
+    if (_history.isEmpty) {
+      _showMessage('Nothing to undo.');
+      return;
+    }
+
+    final _Move move = _history.removeLast();
+
+    final String key = _cellKey(move.row, move.col);
+
+    setState(() {
+      _board.setNumber(move.row, move.col, move.previousValue);
+
+      /// If the cell had somehow been marked as hinted, restore its normal
+      /// editable state when undoing the move.
+      _hintedCells.remove(key);
+
+      _selectedRow = move.row;
+      _selectedCol = move.col;
+    });
+  }
+
+  void _saveHistory() {
+    if (!_hasValidSelection()) {
+      return;
+    }
+
+    _history.add(
+      _Move(
+        row: _selectedRow,
+        col: _selectedCol,
+        previousValue: _board.board[_selectedRow][_selectedCol],
+      ),
+    );
+
+    if (_history.length > _maxHistorySize) {
+      _history.removeAt(0);
+    }
+  }
+
+  /// ==========================================================================
+  /// HINT SYSTEM
+  /// ==========================================================================
+
+  void _giveHint() {
+    if (_isGameFinished || _isCompleting) {
+      return;
+    }
+
+    if (_hintsRemaining <= 0) {
+      _showMessage('No hints remaining.');
       return;
     }
 
     int targetRow = -1;
     int targetCol = -1;
 
-    // Strategy 1: If user has a cell selected and it's empty/wrong, hint that one.
-    if (_isValidSelection() &&
-        !hintedCells.contains("$selectedRow-$selectedCol") &&
-        (board.board[selectedRow][selectedCol] == 0 || 
-         board.board[selectedRow][selectedCol] != board.solution[selectedRow][selectedCol])) {
-      targetRow = selectedRow;
-      targetCol = selectedCol;
-    } 
-    // Strategy 2: Otherwise, find the first empty/wrong cell.
-    else {
-      List<Map<String, int>> candidates = [];
-      for (int r = 0; r < 9; r++) {
-        for (int c = 0; c < 9; c++) {
-          if (board.fixed[r][c] || hintedCells.contains("$r-$c")) continue;
-          if (board.board[r][c] == 0 || board.board[r][c] != board.solution[r][c]) {
-            candidates.add({"r": r, "c": c});
+    /// ------------------------------------------------------------------------
+    /// Strategy 1:
+    /// Use the currently selected cell if it is editable and incorrect/empty.
+    /// ------------------------------------------------------------------------
+
+    if (_hasValidSelection()) {
+      final String selectedKey = _cellKey(_selectedRow, _selectedCol);
+
+      final int currentValue = _board.board[_selectedRow][_selectedCol];
+
+      final int solutionValue = _board.solution[_selectedRow][_selectedCol];
+
+      if (!_hintedCells.contains(selectedKey) &&
+          currentValue != solutionValue) {
+        targetRow = _selectedRow;
+        targetCol = _selectedCol;
+      }
+    }
+
+    /// ------------------------------------------------------------------------
+    /// Strategy 2:
+    /// Find an available incorrect/empty cell.
+    /// ------------------------------------------------------------------------
+
+    if (targetRow == -1) {
+      final List<_CellPosition> candidates = <_CellPosition>[];
+
+      for (int row = 0; row < 9; row++) {
+        for (int col = 0; col < 9; col++) {
+          final String key = _cellKey(row, col);
+
+          if (_board.fixed[row][col]) {
+            continue;
+          }
+
+          if (_hintedCells.contains(key)) {
+            continue;
+          }
+
+          final int currentValue = _board.board[row][col];
+
+          final int solutionValue = _board.solution[row][col];
+
+          if (currentValue != solutionValue) {
+            candidates.add(_CellPosition(row: row, col: col));
           }
         }
       }
 
       if (candidates.isEmpty) {
-        _showToast("Board is already correct!");
+        _showMessage('The board is already correct.');
         return;
       }
-      
+
       candidates.shuffle();
-      targetRow = candidates.first["r"]!;
-      targetCol = candidates.first["c"]!;
+
+      targetRow = candidates.first.row;
+      targetCol = candidates.first.col;
     }
 
     _applyHint(targetRow, targetCol);
   }
 
-  void _applyHint(int r, int c) {
-    _saveHistory(); // Allow undoing a hint if desired, or skip this to make hints permanent
-    
-    setState(() {
-      board.setNumber(r, c, board.solution[r][c]);
-      hintedCells.add("$r-$c");
-      hintsRemaining--;
-      selectedRow = r;
-      selectedCol = c;
-    });
+  void _applyHint(int row, int col) {
+    if (!_isValidCell(row, col)) {
+      return;
+    }
 
-    _checkWin();
-  }
+    final String key = _cellKey(row, col);
 
-  // ==========================================================================
-  // INPUT HANDLERS
-  // ==========================================================================
+    if (_board.fixed[row][col]) {
+      return;
+    }
 
-  /// Handles user input into the selected cell
-  void inputNumber(int number) {
-    if (!_isValidSelection()) return;
-    
-    // Don't allow changing a hinted cell (Professional touch)
-    if (hintedCells.contains("$selectedRow-$selectedCol")) return;
+    if (_hintedCells.contains(key)) {
+      return;
+    }
 
-    _saveHistory();
-    setState(() => board.setNumber(selectedRow, selectedCol, number));
-    _checkWin();
-  }
-
-  /// Reverts the last move made by the player
-  void undoMove() {
-    if (history.isEmpty) return;
-    final last = history.removeLast();
-    setState(() {
-      board.setNumber(last["row"], last["col"], last["value"]);
-      // Optional: if hint was undone, remove from hintedCells
-    });
-  }
-
-  bool _isValidSelection() => 
-    selectedRow != -1 && selectedCol != -1 && !board.fixed[selectedRow][selectedCol];
-
-  void _saveHistory() {
-    history.add({
-      "row": selectedRow,
-      "col": selectedCol,
-      "value": board.board[selectedRow][selectedCol],
-    });
-    if (history.length > 20) history.removeAt(0); // Limit memory usage
-  }
-
-// ==========================================================================
-  // WIN CONDITION & NAVIGATION
-  // ==========================================================================
-
-  Future<void> _checkWin() async {
-    if (!SudokuValidator.isBoardComplete(board.board)) return;
-    if (!SudokuValidator.isValidSolution(board.board, board.solution)) return;
-
-    _timer?.cancel();
-    int stars = _calculateStars();
-
-    // FIX: Using the correct method name from our ProgressService
-    await progressService.completeLevel(
-      globalLevel: widget.levelNumber, // This is our source of truth
-      timeInSeconds: _secondsElapsed,
-      stars: stars,
+    /// Save the previous value so the action remains undoable.
+    _history.add(
+      _Move(row: row, col: col, previousValue: _board.board[row][col]),
     );
 
-    if (mounted) _showWinScreen(stars);
+    if (_history.length > _maxHistorySize) {
+      _history.removeAt(0);
+    }
+
+    setState(() {
+      _board.setNumber(row, col, _board.solution[row][col]);
+
+      _hintedCells.add(key);
+
+      _hintsRemaining--;
+
+      _selectedRow = row;
+      _selectedCol = col;
+    });
+
+    _checkWin();
   }
 
+  /// ==========================================================================
+  /// WIN DETECTION
+  /// ==========================================================================
+
+  Future<void> _checkWin() async {
+    if (_isGameFinished || _isCompleting) {
+      return;
+    }
+
+    if (!SudokuValidator.isBoardComplete(_board.board)) {
+      return;
+    }
+
+    if (!SudokuValidator.isValidSolution(_board.board, _board.solution)) {
+      return;
+    }
+
+    _isCompleting = true;
+    _isGameFinished = true;
+
+    _stopTimer();
+
+    final int stars = _calculateStars();
+
+    try {
+      await _progressService.completeLevel(
+        globalLevel: widget.levelNumber,
+        timeInSeconds: _secondsElapsed,
+        stars: stars,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _showWinScreen(stars);
+    } catch (e, stackTrace) {
+      debugPrint('GameScreen: failed to save level ${widget.levelNumber}: $e');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      _isCompleting = false;
+      _isGameFinished = false;
+
+      _startTimer();
+
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Could not save your progress. Please try again.');
+    }
+  }
+
+  /// ==========================================================================
+  /// STAR CALCULATION
+  /// ==========================================================================
+
   int _calculateStars() {
-    if (_secondsElapsed <= level.targetTime) return 3;
-    if (_secondsElapsed <= level.targetTime * 1.5) return 2;
+    final int targetTime = _level.targetTime;
+
+    if (_secondsElapsed <= targetTime) {
+      return 3;
+    }
+
+    if (_secondsElapsed <= targetTime * 1.5) {
+      return 2;
+    }
+
     return 1;
   }
 
+  /// ==========================================================================
+  /// WIN SCREEN
+  /// ==========================================================================
+
   void _showWinScreen(int stars) {
+    if (!mounted) {
+      return;
+    }
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => WinScreen(
-          levelNumber: widget.levelNumber,
-          stars: stars,
-          time: _formatTime(_secondsElapsed),
-          world: widget.world,
+        builder: (_) {
+          return WinScreen(
+            levelNumber: widget.levelNumber,
+            stars: stars,
+            time: _formatTime(_secondsElapsed),
+          );
+        },
+      ),
+    );
+  }
+
+  /// ==========================================================================
+  /// FORMATTING
+  /// ==========================================================================
+
+  String _formatTime(int totalSeconds) {
+    final int minutes = totalSeconds ~/ 60;
+    final int seconds = totalSeconds % 60;
+
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  /// ==========================================================================
+  /// MESSAGES
+  /// ==========================================================================
+
+  void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// ==========================================================================
+  /// ERROR UI
+  /// ==========================================================================
+
+  Widget _buildErrorState() {
+    final ThemeData theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sudoku')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: theme.colorScheme.error,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _errorMessage ?? 'Could not load this level.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = null;
+                  });
+
+                  _loadLevel();
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  String _formatTime(int totalSeconds) {
-    int minutes = totalSeconds ~/ 60;
-    int seconds = totalSeconds % 60;
-    return "${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
-  }
-
-  void _showToast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 1)));
-  }
+  /// ==========================================================================
+  /// BUILD
+  /// ==========================================================================
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-    /// STEP 2: Main UI Scaffold
-    /// Scaffold provides the basic visual layout structure
-    /// like AppBar, body, etc.
+    if (_errorMessage != null) {
+      return _buildErrorState();
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text("World ${widget.world} - Level ${widget.levelNumber}"),
+        title: Text('World $_world • Level ${widget.levelNumber}'),
         actions: [
-          Center(child: Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Text("Hints: $hintsRemaining", style: const TextStyle(fontSize: 16)),
-          ))
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                'Hints: $_hintsRemaining',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ),
         ],
       ),
       body: SafeArea(
         child: Column(
-          // 2. Set to start to pull everything toward the top
-          mainAxisAlignment: MainAxisAlignment.start,
           children: [
             const SizedBox(height: 12),
-            Text(
-              _formatTime(_secondsElapsed), 
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)
-            ),
-            const SizedBox(height: 10),
-            
-            // 3. Removed Expanded from here to prevent the "dead space" stretching
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: SudokuGrid(
-                board: board, // 2D array representing Sudoku values
 
-                /// Currently selected cell position
-                selectedRow: selectedRow,
-                selectedCol: selectedCol,
-                hintedCells: hintedCells,
-                onCellTap: (r, c) => setState(() { 
-                  selectedRow = r; 
-                  selectedCol = c; 
-                }),
+            /// TIMER
+            Text(
+              _formatTime(_secondsElapsed),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 10),
+
+            /// SUDOKU GRID
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: SudokuGrid(
+                board: _board,
+                selectedRow: _selectedRow,
+                selectedCol: _selectedCol,
+                hintedCells: _hintedCells,
+                onCellTap: _selectCell,
               ),
             ),
 
-            // 4. Tighten the gap between Grid and NumberPad
             const SizedBox(height: 20),
 
+            /// NUMBER PAD
             NumberPad(
-              onNumberSelected: inputNumber,
-
-              /// Undo last move
-              onUndo: undoMove,
-
-              /// Provide hint to user
-              onHint: giveHint,
-              onErase: () {
-                if (_isValidSelection()) {
-                  _saveHistory();
-                  setState(() {
-                    board.clearCell(selectedRow, selectedCol);
-                    // Remove from hintedCells so it's no longer "protected" or "marked"
-                    hintedCells.remove("$selectedRow-$selectedCol"); 
-                  });
-                }
-              },
+              onNumberSelected: _inputNumber,
+              onUndo: _undoMove,
+              onHint: _giveHint,
+              onErase: _eraseSelectedCell,
             ),
-            
-            // 5. This Spacer pushes everything UP and fills the gap at the bottom
+
             const Spacer(),
           ],
         ),
       ),
     );
   }
+}
+
+/// ============================================================================
+/// INTERNAL CELL POSITION MODEL
+/// ============================================================================
+
+class _CellPosition {
+  final int row;
+  final int col;
+
+  const _CellPosition({required this.row, required this.col});
 }

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../services/user_service.dart';
 import '../services/progress_service.dart';
+import '../services/user_service.dart';
 import '../widgets/settings_tile.dart';
 
 /// ============================================================================
@@ -12,16 +12,19 @@ import '../widgets/settings_tile.dart';
 /// ----------------------------------------------------------------------------
 /// Handles:
 /// - User profile (name, ID)
-/// - App info (version)
+/// - App information (version)
 /// - External links
-/// - Reset functionality
+/// - Copy user ID
+/// - Reset progress
 ///
-/// Production Features:
-/// - Safe async handling
-/// - Proper validation
-/// - Memory-safe dialog usage
+/// Notes:
+/// - Existing UserService API is preserved.
+/// - Existing ProgressService API is preserved.
+/// - Existing SettingsTile API is preserved.
+/// - Async operations are guarded with mounted checks.
+/// - Dialog actions prevent duplicate operations.
+/// - User input is validated without restricting legitimate Unicode names.
 /// ============================================================================
-
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -30,14 +33,51 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // ==========================================================================
+  // SERVICES
+  // ==========================================================================
+
   final UserService userService = UserService();
   final ProgressService progressService = ProgressService();
 
-  String userName = "";
-  String userId = "";
-  String appVersion = "";
+  // ==========================================================================
+  // APP LINKS
+  // ==========================================================================
+  //
+  // IMPORTANT:
+  // Replace these placeholder URLs with your real production URLs.
+  //
+  // If these URLs are used by multiple files, move them to a shared file such
+  // as:
+  //
+  // lib/config/app_links.dart
+  //
+  // and reference them from there.
+  // ==========================================================================
+
+  static const String websiteUrl = 'https://your-site.com';
+  static const String privacyPolicyUrl = 'https://privacy.com';
+  static const String termsUrl = 'https://terms.com';
+
+  // ==========================================================================
+  // STATE
+  // ==========================================================================
+
+  String userName = '';
+  String userId = '';
+  String appVersion = '';
 
   bool isLoading = true;
+
+  /// Prevents opening multiple name dialogs at the same time.
+  bool _isNameDialogOpen = false;
+
+  /// Prevents multiple reset operations at the same time.
+  bool _isResetting = false;
+
+  // ==========================================================================
+  // LIFECYCLE
+  // ==========================================================================
 
   @override
   void initState() {
@@ -45,14 +85,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _initialize();
   }
 
-  /// ==========================================================================
-  /// INITIAL LOAD
-  /// ==========================================================================
+  // ==========================================================================
+  // INITIALIZATION
+  // ==========================================================================
+
   Future<void> _initialize() async {
-    await Future.wait([
-      loadUser(),
-      loadAppVersion(),
-    ]);
+    try {
+      await Future.wait([loadUser(), loadAppVersion()]);
+    } catch (e, stackTrace) {
+      debugPrint('Settings initialization error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+    }
 
     if (!mounted) return;
 
@@ -61,9 +104,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  /// ==========================================================================
-  /// LOAD APP VERSION (SAFE)
-  /// ==========================================================================
+  // ==========================================================================
+  // LOAD APP VERSION
+  // ==========================================================================
+
   Future<void> loadAppVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
@@ -71,228 +115,433 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
 
       setState(() {
-        appVersion = "${info.version} (${info.buildNumber})";
+        appVersion = '${info.version} (${info.buildNumber})';
       });
-    } catch (e) {
-      appVersion = "Unknown";
+    } catch (e, stackTrace) {
+      debugPrint('App version load error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        appVersion = 'Unknown';
+      });
     }
   }
 
-  /// ==========================================================================
-  /// LOAD USER DATA
-  /// ==========================================================================
+  // ==========================================================================
+  // LOAD USER DATA
+  // ==========================================================================
+
   Future<void> loadUser() async {
     try {
+      // IMPORTANT:
+      // These calls are intentionally not awaited.
+      //
+      // Your current code indicates that getUserName() and getUserId()
+      // return synchronously. Do not change this to await unless the
+      // UserService API actually returns Future values.
       final name = userService.getUserName();
       final id = userService.getUserId();
 
       if (!mounted) return;
 
       setState(() {
-        userName = name ?? "";
+        userName = name?.trim() ?? '';
         userId = id;
       });
 
-      /// Prompt name if not set
-      if (name == null || name.isEmpty) {
-        Future.microtask(() => _promptName());
+      // Ask for a name after the screen has completed its current lifecycle
+      // work. The flag prevents duplicate dialogs.
+      if (name == null || name.trim().isEmpty) {
+        Future.microtask(() {
+          if (!mounted || _isNameDialogOpen) return;
+          _promptName();
+        });
       }
-    } catch (e) {
-      debugPrint("User load error: $e");
+    } catch (e, stackTrace) {
+      debugPrint('User load error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      // Keep safe defaults if user loading fails.
+      setState(() {
+        userName = '';
+        userId = '';
+      });
     }
   }
 
-  /// ==========================================================================
-  /// NAME INPUT DIALOG (SAFE + VALIDATED)
-  /// ==========================================================================
-  void _promptName() {
+  // ==========================================================================
+  // NAME INPUT DIALOG
+  // ==========================================================================
+
+  Future<void> _promptName() async {
+    if (!mounted || _isNameDialogOpen) return;
+
+    _isNameDialogOpen = true;
+
     final controller = TextEditingController(text: userName);
     String? errorText;
+    bool isSaving = false;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (_, setStateDialog) {
-            return AlertDialog(
-              title: const Text("Enter your name"),
-              content: TextField(
-                controller: controller,
-                decoration: InputDecoration(
-                  hintText: "Your Name",
-                  errorText: errorText,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    final name = controller.text.trim();
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setStateDialog) {
+              Future<void> saveName() async {
+                if (isSaving) return;
 
-                    /// Validation
-                    if (name.length < 3) {
-                      setStateDialog(() {
-                        errorText = "Minimum 3 characters required";
-                      });
-                      return;
-                    }
+                final name = controller.text.trim();
 
-                    /// Allow spaces (better UX)
-                    final valid =
-                        RegExp(r'^[a-zA-Z0-9 ]+$').hasMatch(name);
+                // ------------------------------------------------------------
+                // VALIDATION
+                // ------------------------------------------------------------
 
-                    if (!valid) {
-                      setStateDialog(() {
-                        errorText =
-                            "Only letters, numbers & spaces allowed";
-                      });
-                      return;
-                    }
+                if (name.isEmpty) {
+                  setStateDialog(() {
+                    errorText = 'Please enter your name';
+                  });
+                  return;
+                }
 
-                    final navigator = Navigator.of(dialogContext);
+                if (name.length < 3) {
+                  setStateDialog(() {
+                    errorText = 'Minimum 3 characters required';
+                  });
+                  return;
+                }
 
-                    await userService.saveUserName(name);
+                if (name.length > 50) {
+                  setStateDialog(() {
+                    errorText = 'Name must be 50 characters or less';
+                  });
+                  return;
+                }
 
-                    if (!mounted) return;
+                // ------------------------------------------------------------
+                // SAVE
+                // ------------------------------------------------------------
 
-                    setState(() {
-                      userName = name;
-                    });
+                setStateDialog(() {
+                  isSaving = true;
+                  errorText = null;
+                });
 
-                    controller.dispose(); // ✅ prevent leak
-                    navigator.pop();
+                try {
+                  await userService.saveUserName(name);
+
+                  if (!mounted) return;
+
+                  setState(() {
+                    userName = name;
+                  });
+
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                } catch (e, stackTrace) {
+                  debugPrint('Save name error: $e');
+                  debugPrintStack(stackTrace: stackTrace);
+
+                  if (!dialogContext.mounted) return;
+
+                  setStateDialog(() {
+                    isSaving = false;
+                    errorText = 'Could not save your name. Please try again.';
+                  });
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('Enter your name'),
+                content: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.done,
+                  maxLength: 50,
+                  enabled: !isSaving,
+                  onSubmitted: (_) {
+                    saveName();
                   },
-                  child: const Text("Save"),
-                )
-              ],
-            );
-          },
-        );
-      },
-    );
+                  decoration: InputDecoration(
+                    hintText: 'Your Name',
+                    errorText: errorText,
+                    counterText: '',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isSaving
+                        ? null
+                        : () {
+                            Navigator.of(dialogContext).pop();
+                          },
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: isSaving ? null : saveName,
+                    child: isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+      _isNameDialogOpen = false;
+    }
   }
 
-  /// ==========================================================================
-  /// OPEN EXTERNAL LINK (SAFE)
-  /// ==========================================================================
+  // ==========================================================================
+  // OPEN EXTERNAL LINK
+  // ==========================================================================
+
   Future<void> openLink(String url) async {
     try {
-      final uri = Uri.parse(url);
+      final uri = Uri.tryParse(url);
+
+      if (uri == null ||
+          !uri.hasScheme ||
+          !(uri.scheme == 'http' || uri.scheme == 'https')) {
+        debugPrint('Invalid URL: $url');
+
+        if (!mounted) return;
+
+        _showSnackBar('Invalid link');
+
+        return;
+      }
 
       final success = await launchUrl(
         uri,
         mode: LaunchMode.externalApplication,
       );
 
-      if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Could not open link"),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      if (!success) {
+        debugPrint('Could not launch URL: $url');
+
+        if (!mounted) return;
+
+        _showSnackBar('Could not open link');
       }
-    } catch (e) {
-      debugPrint("URL launch error: $e");
+    } catch (e, stackTrace) {
+      debugPrint('URL launch error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      _showSnackBar('Could not open link');
     }
   }
 
-  /// ==========================================================================
-  /// RESET DATA
-  /// ==========================================================================
-  void showResetDialog() {
-    showDialog(
+  // ==========================================================================
+  // RESET DATA DIALOG
+  // ==========================================================================
+
+  Future<void> showResetDialog() async {
+    if (!mounted || _isResetting) return;
+
+    final shouldReset = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Reset Data"),
-        content: const Text(
-          "This will erase all progress permanently.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Data'),
+          content: const Text(
+            'This will erase all progress permanently. '
+            'This action cannot be undone.',
           ),
-          TextButton(
-            onPressed: () async {
-              await progressService.resetProgress();
-
-              if (!mounted) return;
-
-              Navigator.pop(context);
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Progress reset successfully"),
-                ),
-              );
-            },
-            child: const Text(
-              "Reset",
-              style: TextStyle(color: Colors.red),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Cancel'),
             ),
-          ),
-        ],
-      ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Reset', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
     );
+
+    if (shouldReset != true || !mounted || _isResetting) {
+      return;
+    }
+
+    await _resetProgress();
   }
 
-  /// ==========================================================================
-  /// UI
-  /// ==========================================================================
+  // ==========================================================================
+  // RESET PROGRESS
+  // ==========================================================================
+
+  Future<void> _resetProgress() async {
+    if (_isResetting) return;
+
+    setState(() {
+      _isResetting = true;
+    });
+
+    try {
+      await progressService.resetProgress();
+
+      if (!mounted) return;
+
+      _showSnackBar('Progress reset successfully');
+    } catch (e, stackTrace) {
+      debugPrint('Reset progress error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      _showSnackBar('Could not reset progress. Please try again.');
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _isResetting = false;
+      });
+    }
+  }
+
+  // ==========================================================================
+  // COPY USER ID
+  // ==========================================================================
+
+  Future<void> _copyUserId() async {
+    if (userId.isEmpty) {
+      _showSnackBar('User ID is not available');
+      return;
+    }
+
+    try {
+      await Clipboard.setData(ClipboardData(text: userId));
+
+      if (!mounted) return;
+
+      _showSnackBar('User ID copied');
+    } catch (e, stackTrace) {
+      debugPrint('Clipboard error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      _showSnackBar('Could not copy User ID');
+    }
+  }
+
+  // ==========================================================================
+  // SHARE
+  // ==========================================================================
+
+  void _shareApp() {
+    // TODO:
+    // Implement app sharing when the desired share content/store URL is known.
+    //
+    // Example future implementation could use the share_plus package.
+    //
+    // Do not add a package/dependency here until the desired sharing behavior
+    // has been decided.
+    _showSnackBar('Share is not available yet');
+  }
+
+  // ==========================================================================
+  // SNACKBAR HELPER
+  // ==========================================================================
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  // ==========================================================================
+  // UI
+  // ==========================================================================
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Settings")),
+      appBar: AppBar(title: const Text('Settings')),
       body: Column(
         children: [
-          /// ================= SCROLLABLE CONTENT =================
+          // ==================================================================
+          // SCROLLABLE SETTINGS CONTENT
+          // ==================================================================
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                /// PROFILE
+                // ==============================================================
+                // PROFILE
+                // ==============================================================
                 SettingsTile(
                   icon: Icons.person,
-                  title:
-                      userName.isEmpty ? "Set your name" : userName,
-                  subtitle: "Tap to edit",
+                  title: userName.isEmpty ? 'Set your name' : userName,
+                  subtitle: 'Tap to edit',
                   trailing: const Icon(Icons.edit),
                   onTap: _promptName,
                 ),
 
-                /// USER ID
+                // ==============================================================
+                // USER ID
+                // ==============================================================
                 SettingsTile(
                   icon: Icons.fingerprint,
-                  title: "User ID",
-                  subtitle: userId,
+                  title: 'User ID',
+                  subtitle: userId.isEmpty ? 'Unavailable' : userId,
                   trailing: IconButton(
+                    tooltip: 'Copy User ID',
                     icon: const Icon(Icons.copy),
-                    onPressed: () {
-                      Clipboard.setData(
-                          ClipboardData(text: userId));
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("User ID copied"),
-                        ),
-                      );
-                    },
+                    onPressed: userId.isEmpty ? null : _copyUserId,
                   ),
                 ),
 
-                /// RESET
+                // ==============================================================
+                // RESET
+                // ==============================================================
                 SettingsTile(
                   icon: Icons.delete,
-                  title: "Reset Data",
+                  title: 'Reset Data',
+                  subtitle: 'Erase all saved progress',
                   isDanger: true,
-                  onTap: showResetDialog,
+                  trailing: _isResetting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _isResetting ? null : showResetDialog,
                 ),
 
                 const SizedBox(height: 20),
@@ -300,72 +549,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-          /// ================= FOOTER =================
+          // ==================================================================
+          // FOOTER
+          // ==================================================================
           SafeArea(
             top: false,
-            child: Column(
-              children: [
-                /// SOCIAL
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.public),
-                      onPressed: () =>
-                          openLink("https://your-site.com"),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.share),
-                      onPressed: () {
-                        // TODO: Implement share
-                      },
-                    ),
-                  ],
-                ),
-
-                /// VERSION
-                Text(
-                  appVersion.isEmpty
-                      ? "Loading..."
-                      : "Version $appVersion",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  // ============================================================
+                  // SOCIAL / WEBSITE / SHARE
+                  // ============================================================
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Open website',
+                        icon: const Icon(Icons.public),
+                        onPressed: () {
+                          openLink(websiteUrl);
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Share app',
+                        icon: const Icon(Icons.share),
+                        onPressed: _shareApp,
+                      ),
+                    ],
                   ),
-                ),
 
-                const SizedBox(height: 6),
+                  // ============================================================
+                  // VERSION
+                  // ============================================================
+                  Text(
+                    appVersion.isEmpty
+                        ? 'Version unavailable'
+                        : 'Version $appVersion',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
 
-                /// LINKS
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    InkWell(
-                      onTap: () =>
-                          openLink("https://privacy.com"),
-                      child: const Text(
-                        "Privacy Policy",
-                        style: TextStyle(
-                          decoration: TextDecoration.underline,
-                        ),
+                  const SizedBox(height: 8),
+
+                  // ============================================================
+                  // LEGAL LINKS
+                  // ============================================================
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          openLink(privacyPolicyUrl);
+                        },
+                        child: const Text('Privacy Policy'),
                       ),
-                    ),
-                    const Text(" • "),
-                    InkWell(
-                      onTap: () =>
-                          openLink("https://terms.com"),
-                      child: const Text(
-                        "Terms & Conditions",
-                        style: TextStyle(
-                          decoration: TextDecoration.underline,
-                        ),
+                      const Text('•'),
+                      TextButton(
+                        onPressed: () {
+                          openLink(termsUrl);
+                        },
+                        child: const Text('Terms & Conditions'),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
 
-                const SizedBox(height: 10),
-              ],
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
         ],
