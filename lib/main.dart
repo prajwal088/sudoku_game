@@ -50,7 +50,7 @@ class GameConfig {
   static const int levelsPerWorld = ProgressService.levelsPerWorld;
   static const int totalWorlds = 10;
 
-  static const int totalLevels = levelsPerWorld * totalWorlds;
+  static const int totalLevels = levelsPerWorld *totalWorlds;
 }
 
 /// ============================================================================

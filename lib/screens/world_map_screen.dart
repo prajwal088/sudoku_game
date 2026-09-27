@@ -45,7 +45,6 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   ///
   /// Later, this can be moved to a central game configuration if the number of
   /// worlds becomes dynamic.
-  static const int _totalWorlds = 10;
 
   /// ==========================================================================
   /// SERVICES
@@ -112,7 +111,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
     try {
       final results = await Future.wait<dynamic>([
         _progressService.getHighestUnlockedWorld(),
-        _progressService.getAllWorldStars(_totalWorlds),
+        _progressService.getAllWorldStars(GameConfig.totalWorlds),
       ]);
 
       final int unlockedWorld = results[0] as int;
@@ -124,7 +123,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
       if (!mounted) return;
 
       setState(() {
-        _highestUnlockedWorld = unlockedWorld.clamp(1, _totalWorlds);
+        _highestUnlockedWorld = unlockedWorld.clamp(1, GameConfig.totalWorlds);
 
         _worldStars = stars;
 
@@ -283,7 +282,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         child: GridView.builder(
           padding: const EdgeInsets.all(16),
           physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: _totalWorlds,
+          itemCount: GameConfig.totalWorlds,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 16,
