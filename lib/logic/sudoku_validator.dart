@@ -20,6 +20,7 @@
 /// - 0 represents an empty cell.
 /// - 1..9 represent Sudoku values.
 /// ============================================================================
+library;
 
 class SudokuValidator {
   static const int gridSize = 9;

@@ -22,6 +22,7 @@
 /// - A solved board is not necessarily a uniquely solvable puzzle.
 ///   Use [countSolutions] when uniqueness verification is required.
 /// ============================================================================
+library;
 
 class SudokuSolver {
   static const int gridSize = 9;
