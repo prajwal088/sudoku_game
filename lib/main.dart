@@ -48,9 +48,8 @@ class GameConfig {
   const GameConfig._();
 
   static const int levelsPerWorld = ProgressService.levelsPerWorld;
-  static const int totalWorlds = 10;
-
-  static const int totalLevels = levelsPerWorld *totalWorlds;
+  static const int totalWorlds = ProgressService.totalWorlds;
+  static const int totalLevels = levelsPerWorld * totalWorlds;
 }
 
 /// ============================================================================
@@ -116,18 +115,27 @@ Future<void> _configureSystemUi() async {
 
 /// Initializes application services required before the UI starts.
 ///
-/// UserService currently needs initialization before screens access user data.
+/// ProgressService MUST be initialized before screens/services attempt to
+/// access saved progression, levels, worlds, or completion data.
+///
+/// UserService is also initialized before screens access user data.
 Future<void> _initializeServices() async {
   try {
+    // ProgressService must be initialized first because LevelService,
+    // LevelMapScreen, WorldMapScreen, and other progression-dependent
+    // components use it during application startup.
+    await ProgressService().init();
+
+    // Initialize user/account-related services.
     await UserService().init();
   } catch (e, stackTrace) {
-    debugPrint('UserService initialization failed: $e');
+    debugPrint('Application service initialization failed: $e');
 
     debugPrintStack(stackTrace: stackTrace);
 
     // The application is allowed to start.
     //
-    // Individual screens/services should handle unavailable user data safely.
+    // Individual screens/services should handle unavailable data safely.
   }
 }
 
@@ -295,7 +303,9 @@ class SudokuApp extends StatelessWidget {
     return MaterialPageRoute(
       builder: (context) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Something went wrong')),
+          appBar: AppBar(
+            title: const Text('Something went wrong'),
+          ),
           body: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -313,7 +323,10 @@ class SudokuApp extends StatelessWidget {
                   const Text(
                     'Unable to open this screen',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
 
                   const SizedBox(height: 12),
@@ -321,7 +334,9 @@ class SudokuApp extends StatelessWidget {
                   Text(
                     message,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(
+                      fontSize: 14,
+                    ),
                   ),
 
                   const SizedBox(height: 28),

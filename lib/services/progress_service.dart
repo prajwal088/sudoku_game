@@ -78,10 +78,10 @@ class ProgressService {
   static const int levelsPerWorld = 25;
 
   /// Number of worlds contained in the game.
-  static const int _totalWorlds = 10;
+  static const int totalWorlds = 10;
 
   /// Total number of playable global levels.
-  static const int totalLevels = levelsPerWorld * _totalWorlds;
+  static const int totalLevels = levelsPerWorld * totalWorlds;
 
   static const int _firstLevel = 1;
   static const int _firstWorld = 1;
@@ -386,7 +386,7 @@ class ProgressService {
   int _deriveHighestUnlockedWorld(Set<int> completedLevels) {
     int highestWorld = _firstWorld;
 
-    for (int world = _firstWorld; world < _totalWorlds; world++) {
+    for (int world = _firstWorld; world < totalWorlds; world++) {
       final finalLevel = getGlobalLevel(world, levelsPerWorld);
 
       if (!completedLevels.contains(finalLevel)) {
@@ -738,7 +738,7 @@ class ProgressService {
 
     final safeTotalWorlds = requestedTotalWorlds.clamp(
       _firstWorld,
-      _totalWorlds,
+      totalWorlds,
     );
 
     final result = <int, int>{};
@@ -895,12 +895,12 @@ class ProgressService {
   }
 
   void _validateWorld(int world) {
-    if (world < _firstWorld || world > _totalWorlds) {
+    if (world < _firstWorld || world > totalWorlds) {
       throw ArgumentError.value(
         world,
         'world',
         'World must be between '
-            '$_firstWorld and $_totalWorlds.',
+            '$_firstWorld and $totalWorlds.',
       );
     }
   }
