@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'config/game_config.dart';
 import 'core/theme/app_theme.dart';
+import 'core/navigation.dart';
 import 'screens/game_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/level_map_screen.dart';
@@ -12,47 +14,6 @@ import 'services/progress_service.dart';
 import 'services/user_service.dart';
 
 /// ============================================================================
-/// ROUTE ARGUMENT MODELS
-/// ============================================================================
-
-/// Arguments required to open a Sudoku game.
-///
-/// A level has ONE identity throughout the application:
-///
-///     levelNumber
-///
-/// The world and local level number are derived from this value when needed.
-///
-/// Example:
-///
-/// Navigator.pushNamed(
-///   context,
-///   AppRoutes.game,
-///   arguments: GameArguments(levelNumber: 26),
-/// );
-class GameArguments {
-  final int levelNumber;
-
-  const GameArguments({required this.levelNumber});
-}
-
-/// ============================================================================
-/// APPLICATION CONFIGURATION
-/// ============================================================================
-
-/// Central game configuration.
-///
-/// Keep values that define the structure of the game here rather than
-/// scattering magic numbers across individual screens.
-class GameConfig {
-  const GameConfig._();
-
-  static const int levelsPerWorld = ProgressService.levelsPerWorld;
-  static const int totalWorlds = ProgressService.totalWorlds;
-  static const int totalLevels = levelsPerWorld * totalWorlds;
-}
-
-/// ============================================================================
 /// APPLICATION ENTRY POINT
 /// ============================================================================
 
@@ -60,101 +21,141 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   _configureFlutterErrorHandling();
-  await _configureSystemUi();
-  await _initializeServices();
 
-  runApp(const SudokuApp());
+  final StartupResult startupResult = await _initializeApplication();
+
+  runApp(
+    SudokuApp(
+      startupResult: startupResult,
+    ),
+  );
 }
 
 /// ============================================================================
-/// STARTUP CONFIGURATION
+/// STARTUP RESULT
 /// ============================================================================
 
-/// Configures framework-level Flutter error handling.
+/// Represents the result of application startup.
 ///
-/// In production, this is the appropriate place to forward errors to a
-/// crash-reporting service such as Firebase Crashlytics or Sentry.
+/// The application is still rendered when initialization fails so the user
+/// receives a controlled error screen instead of a blank/crashed application.
+@immutable
+class StartupResult {
+  final Object? error;
+  final StackTrace? stackTrace;
+
+  const StartupResult.success()
+      : error = null,
+        stackTrace = null;
+
+  const StartupResult.failure({
+    required this.error,
+    required this.stackTrace,
+  });
+
+  bool get isSuccessful => error == null;
+}
+
+/// ============================================================================
+/// APPLICATION INITIALIZATION
+/// ============================================================================
+
+Future<StartupResult> _initializeApplication() async {
+  try {
+    await _configureSystemUi();
+
+    // ------------------------------------------------------------------------
+    // SERVICE INITIALIZATION ORDER
+    // ------------------------------------------------------------------------
+    //
+    // ProgressService must be initialized before any progression-dependent
+    // screen/service accesses persisted progression.
+    //
+    // UserService is initialized afterwards because it represents user/account
+    // data.
+    //
+    // Keep this ordering explicit.
+    //
+
+    await ProgressService().init();
+    await UserService().init();
+
+    return const StartupResult.success();
+  } catch (error, stackTrace) {
+    _logStartupFailure(
+      error,
+      stackTrace,
+    );
+
+    return StartupResult.failure(
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+/// ============================================================================
+/// FLUTTER ERROR HANDLING
+/// ============================================================================
+
 void _configureFlutterErrorHandling() {
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
 
-    debugPrint('Flutter error: ${details.exception}');
+    debugPrint(
+      'Flutter framework error: ${details.exception}',
+    );
 
     if (details.stack != null) {
-      debugPrintStack(stackTrace: details.stack!);
+      debugPrintStack(
+        stackTrace: details.stack!,
+      );
     }
 
-    // TODO:
-    // Forward [details.exception] and [details.stack] to your crash
-    // reporting service in production.
+    // ------------------------------------------------------------------------
+    // PRODUCTION CRASH REPORTING
+    // ------------------------------------------------------------------------
+    //
+    // Integrate Firebase Crashlytics, Sentry, or another crash-reporting
+    // service here when the project adopts one.
+    //
   };
 }
 
-/// Configures orientation and system UI.
-///
-/// The game currently supports portrait orientation only.
+/// Handles errors occurring outside the Flutter framework error pipeline.
+void _logStartupFailure(
+  Object error,
+  StackTrace stackTrace,
+) {
+  debugPrint(
+    'Application startup failed: $error',
+  );
+
+  debugPrintStack(
+    stackTrace: stackTrace,
+  );
+
+  // Forward startup failures to the production crash-reporting service here.
+}
+
+/// ============================================================================
+/// SYSTEM UI CONFIGURATION
+/// ============================================================================
+
 Future<void> _configureSystemUi() async {
-  try {
-    await SystemChrome.setPreferredOrientations(const [
+  await SystemChrome.setPreferredOrientations(
+    const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
-    ]);
+    ],
+  );
 
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-      ),
-    );
-  } catch (e, stackTrace) {
-    debugPrint('System UI initialization failed: $e');
-
-    debugPrintStack(stackTrace: stackTrace);
-  }
-}
-
-/// Initializes application services required before the UI starts.
-///
-/// ProgressService MUST be initialized before screens/services attempt to
-/// access saved progression, levels, worlds, or completion data.
-///
-/// UserService is also initialized before screens access user data.
-Future<void> _initializeServices() async {
-  try {
-    // ProgressService must be initialized first because LevelService,
-    // LevelMapScreen, WorldMapScreen, and other progression-dependent
-    // components use it during application startup.
-    await ProgressService().init();
-
-    // Initialize user/account-related services.
-    await UserService().init();
-  } catch (e, stackTrace) {
-    debugPrint('Application service initialization failed: $e');
-
-    debugPrintStack(stackTrace: stackTrace);
-
-    // The application is allowed to start.
-    //
-    // Individual screens/services should handle unavailable data safely.
-  }
-}
-
-/// ============================================================================
-/// ROUTES
-/// ============================================================================
-
-/// Centralized application route names.
-///
-/// Avoid hard-coded route strings throughout the application.
-class AppRoutes {
-  const AppRoutes._();
-
-  static const String home = '/';
-  static const String worlds = '/worlds';
-  static const String levels = '/levels';
-  static const String game = '/game';
-  static const String settings = '/settings';
-  static const String statistics = '/statistics';
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+    ),
+  );
 }
 
 /// ============================================================================
@@ -162,12 +163,17 @@ class AppRoutes {
 /// ============================================================================
 
 class SudokuApp extends StatelessWidget {
-  const SudokuApp({super.key});
+  final StartupResult startupResult;
+
+  const SudokuApp({
+    required this.startupResult,
+    super.key,
+  });
 
   /// Global navigator key.
   ///
-  /// Useful when navigation is required from application-level code where a
-  /// BuildContext is not available.
+  /// Useful for application-level navigation where a BuildContext is not
+  /// available.
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
@@ -177,38 +183,49 @@ class SudokuApp extends StatelessWidget {
       title: 'Sudoku',
       debugShowCheckedModeBanner: false,
 
-      /// ----------------------------------------------------------------------
-      /// THEME
-      /// ----------------------------------------------------------------------
+      // ----------------------------------------------------------------------
+      // THEME
+      // ----------------------------------------------------------------------
+
       theme: AppTheme.lightTheme,
 
-      /// ----------------------------------------------------------------------
-      /// NAVIGATION
-      /// ----------------------------------------------------------------------
+      // ----------------------------------------------------------------------
+      // NAVIGATION
+      // ----------------------------------------------------------------------
+
       navigatorKey: navigatorKey,
 
-      initialRoute: AppRoutes.home,
+      initialRoute: startupResult.isSuccessful
+          ? AppRoutes.home
+          : AppRoutes.startupError,
 
-      routes: {
+      routes: <String, WidgetBuilder>{
         AppRoutes.home: (_) => const HomeScreen(),
         AppRoutes.worlds: (_) => const WorldMapScreen(),
         AppRoutes.settings: (_) => const SettingsScreen(),
         AppRoutes.statistics: (_) => const StatisticsScreen(),
+        AppRoutes.startupError: (_) => StartupErrorScreen(
+              error: startupResult.error,
+            ),
       },
 
       onGenerateRoute: _onGenerateRoute,
 
-      onUnknownRoute: (settings) {
-        return _errorRoute('Unknown route:\n${settings.name ?? 'null'}');
+      onUnknownRoute: (RouteSettings settings) {
+        return _errorRoute(
+          'Unknown route:\n${settings.name ?? 'null'}',
+        );
       },
     );
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// ROUTE GENERATOR
-  /// ==========================================================================
+  /// ========================================================================
 
-  static Route<dynamic> _onGenerateRoute(RouteSettings settings) {
+  static Route<dynamic> _onGenerateRoute(
+    RouteSettings settings,
+  ) {
     try {
       switch (settings.name) {
         case AppRoutes.game:
@@ -222,25 +239,32 @@ class SudokuApp extends StatelessWidget {
             'Route "${settings.name ?? 'null'}" is not implemented.',
           );
       }
-    } catch (e, stackTrace) {
-      debugPrint('Navigation error for "${settings.name}": $e');
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Navigation error for "${settings.name}": $error',
+      );
 
-      debugPrintStack(stackTrace: stackTrace);
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
-      return _errorRoute('An error occurred while opening this screen.');
+      return _errorRoute(
+        'An error occurred while opening this screen.',
+      );
     }
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// GAME ROUTE
-  /// ==========================================================================
+  /// ========================================================================
 
-  /// Builds the GameScreen route using ONE level identifier.
+  /// Builds the GameScreen route using the global level number.
   ///
-  /// The world is deliberately not passed through navigation arguments.
-  /// GameScreen can derive it from [levelNumber].
-  static Route<dynamic> _buildGameRoute(RouteSettings settings) {
-    final arguments = settings.arguments;
+  /// No world or local-level argument is accepted here.
+  static Route<dynamic> _buildGameRoute(
+    RouteSettings settings,
+  ) {
+    final Object? arguments = settings.arguments;
 
     if (arguments is! GameArguments) {
       return _errorRoute(
@@ -251,75 +275,97 @@ class SudokuApp extends StatelessWidget {
 
     final int levelNumber = arguments.levelNumber;
 
-    if (levelNumber < 1 || levelNumber > GameConfig.totalLevels) {
-      return _errorRoute('Invalid level number: $levelNumber.');
+    if (!_isValidLevelNumber(levelNumber)) {
+      return _errorRoute(
+        'Invalid level number: $levelNumber.',
+      );
     }
 
-    return MaterialPageRoute(
+    return MaterialPageRoute<void>(
       settings: settings,
-      builder: (_) {
-        return GameScreen(levelNumber: levelNumber);
-      },
+      builder: (_) => GameScreen(
+        levelNumber: levelNumber,
+      ),
     );
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// LEVEL MAP ROUTE
-  /// ==========================================================================
+  /// ========================================================================
 
   /// Builds the level map for a specific world.
   ///
-  /// The LevelMapScreen still works with a world because it represents a
-  /// collection of levels. Individual levels themselves use only global
-  /// levelNumber.
-  static Route<dynamic> _buildLevelMapRoute(RouteSettings settings) {
-    final arguments = settings.arguments;
+  /// A world is intentionally used here because this screen represents a
+  /// collection of levels.
+  static Route<dynamic> _buildLevelMapRoute(
+    RouteSettings settings,
+  ) {
+    final Object? arguments = settings.arguments;
 
     if (arguments is! int) {
-      return _errorRoute('Invalid world navigation arguments.');
+      return _errorRoute(
+        'Invalid world navigation arguments.',
+      );
     }
 
     final int world = arguments;
 
-    if (world < 1 || world > GameConfig.totalWorlds) {
-      return _errorRoute('Invalid world number: $world.');
+    if (!_isValidWorldNumber(world)) {
+      return _errorRoute(
+        'Invalid world number: $world.',
+      );
     }
 
-    return MaterialPageRoute(
+    return MaterialPageRoute<void>(
       settings: settings,
-      builder: (_) {
-        return LevelMapScreen(world: world);
-      },
+      builder: (_) => LevelMapScreen(
+        world: world,
+      ),
     );
   }
 
-  /// ==========================================================================
-  /// ERROR ROUTE
-  /// ==========================================================================
+  /// ========================================================================
+  /// VALIDATION
+  /// ========================================================================
 
-  /// Displays a controlled error screen when navigation arguments are invalid
-  /// or an unknown route is requested.
-  static Route<dynamic> _errorRoute(String message) {
-    return MaterialPageRoute(
-      builder: (context) {
+  static bool _isValidLevelNumber(int levelNumber) {
+    return levelNumber >= GameConfig.minimumLevel &&
+        levelNumber <= GameConfig.totalLevels;
+  }
+
+  static bool _isValidWorldNumber(int world) {
+    return world >= GameConfig.minimumWorld &&
+        world <= GameConfig.totalWorlds;
+  }
+
+  /// ========================================================================
+  /// ERROR ROUTE
+  /// ========================================================================
+
+  /// Displays a controlled error screen when navigation fails.
+  static Route<dynamic> _errorRoute(
+    String message,
+  ) {
+    return MaterialPageRoute<void>(
+      builder: (BuildContext context) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Something went wrong'),
+            title: const Text(
+              'Something went wrong',
+            ),
           ),
           body: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+                children: <Widget>[
                   Icon(
                     Icons.error_outline,
                     color: Theme.of(context).colorScheme.error,
                     size: 64,
                   ),
-
                   const SizedBox(height: 20),
-
                   const Text(
                     'Unable to open this screen',
                     textAlign: TextAlign.center,
@@ -328,9 +374,7 @@ class SudokuApp extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   Text(
                     message,
                     textAlign: TextAlign.center,
@@ -338,18 +382,19 @@ class SudokuApp extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
-
                   const SizedBox(height: 28),
-
                   ElevatedButton.icon(
                     onPressed: () {
-                      navigatorKey.currentState?.pushNamedAndRemoveUntil(
+                      navigatorKey.currentState
+                          ?.pushNamedAndRemoveUntil(
                         AppRoutes.home,
-                        (route) => false,
+                        (Route<dynamic> route) => false,
                       );
                     },
                     icon: const Icon(Icons.home),
-                    label: const Text('Return Home'),
+                    label: const Text(
+                      'Return Home',
+                    ),
                   ),
                 ],
               ),
@@ -357,6 +402,102 @@ class SudokuApp extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// ============================================================================
+/// STARTUP ERROR SCREEN
+/// ============================================================================
+
+/// Controlled screen displayed when mandatory application initialization
+/// fails.
+///
+/// This prevents the application from presenting a partially initialized
+/// game state.
+class StartupErrorScreen extends StatelessWidget {
+  final Object? error;
+
+  const StartupErrorScreen({
+    required this.error,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDebugBuild =
+        !const bool.fromEnvironment('dart.vm.product');
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Sudoku'),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 72,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Unable to start Sudoku',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'The application could not initialize its required '
+                  'services. Please restart the application and try again.',
+                  textAlign: TextAlign.center,
+                ),
+
+                // ----------------------------------------------------------------
+                // DEVELOPMENT DIAGNOSTIC
+                // ----------------------------------------------------------------
+
+                if (isDebugBuild && error != null) ...[
+                  const SizedBox(height: 24),
+                  ExpansionTile(
+                    title: const Text(
+                      'Technical details',
+                    ),
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: SelectableText(
+                          error.toString(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 28),
+
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // A full process restart is platform-specific and should
+                    // not be attempted from Flutter application code.
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text(
+                    'Restart App',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

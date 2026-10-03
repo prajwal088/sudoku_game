@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sudoku_game/config/game_config.dart';
+import 'package:sudoku_game/core/navigation.dart';
 import 'package:sudoku_game/main.dart';
 import 'package:sudoku_game/screens/game_screen.dart';
 import 'package:sudoku_game/screens/home_screen.dart';
@@ -19,7 +21,11 @@ void main() {
     testWidgets('renders the application successfully', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
@@ -28,12 +34,18 @@ void main() {
     });
 
     testWidgets('starts on the home route', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      expect(SudokuApp.navigatorKey.currentState, isNotNull);
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
+      expect(navigator, isNotNull);
       expect(find.byType(HomeScreen), findsOneWidget);
     });
 
@@ -41,12 +53,19 @@ void main() {
     /// STATIC ROUTES
     /// ------------------------------------------------------------------------
 
-    testWidgets('can navigate to settings screen', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
+    testWidgets('can navigate to settings screen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
@@ -60,11 +79,16 @@ void main() {
     testWidgets('can navigate to statistics screen', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
@@ -75,12 +99,19 @@ void main() {
       expect(find.byType(StatisticsScreen), findsOneWidget);
     });
 
-    testWidgets('can navigate to worlds screen', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
+    testWidgets('can navigate to worlds screen', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
@@ -98,55 +129,22 @@ void main() {
     testWidgets('rejects invalid level map arguments', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
-
-      expect(navigator, isNotNull);
-
-      navigator!.pushNamed(AppRoutes.levels, arguments: 'invalid-world-id');
-
-      await tester.pumpAndSettle();
-
-      expect(find.text('Unable to open this screen'), findsOneWidget);
-
-      expect(find.text('Invalid world navigation arguments.'), findsOneWidget);
-    });
-
-    testWidgets('rejects world number below one', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
-
-      await tester.pump();
-
-      final navigator = SudokuApp.navigatorKey.currentState;
-
-      expect(navigator, isNotNull);
-
-      navigator!.pushNamed(AppRoutes.levels, arguments: 0);
-
-      await tester.pumpAndSettle();
-
-      expect(find.text('Unable to open this screen'), findsOneWidget);
-
-      expect(find.text('Invalid world number: 0.'), findsOneWidget);
-    });
-
-    testWidgets('rejects world number above configured limit', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(const SudokuApp());
-
-      await tester.pump();
-
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
       navigator!.pushNamed(
         AppRoutes.levels,
-        arguments: GameConfig.totalWorlds + 1,
+        arguments: 'invalid-world-id',
       );
 
       await tester.pumpAndSettle();
@@ -154,7 +152,75 @@ void main() {
       expect(find.text('Unable to open this screen'), findsOneWidget);
 
       expect(
-        find.text('Invalid world number: ${GameConfig.totalWorlds + 1}.'),
+        find.text('Invalid world navigation arguments.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('rejects world number below configured minimum', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
+
+      await tester.pump();
+
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
+
+      expect(navigator, isNotNull);
+
+      final int invalidWorld =
+          GameConfig.minimumWorld - 1;
+
+      navigator!.pushNamed(
+        AppRoutes.levels,
+        arguments: invalidWorld,
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unable to open this screen'), findsOneWidget);
+
+      expect(
+        find.text('Invalid world number: $invalidWorld.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('rejects world number above configured limit', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
+
+      await tester.pump();
+
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
+
+      expect(navigator, isNotNull);
+
+      final int invalidWorld =
+          GameConfig.totalWorlds + 1;
+
+      navigator!.pushNamed(
+        AppRoutes.levels,
+        arguments: invalidWorld,
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unable to open this screen'), findsOneWidget);
+
+      expect(
+        find.text('Invalid world number: $invalidWorld.'),
         findsOneWidget,
       );
     });
@@ -166,15 +232,23 @@ void main() {
     testWidgets('rejects invalid game navigation arguments', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
-      navigator!.pushNamed(AppRoutes.game, arguments: 'invalid-game-arguments');
+      navigator!.pushNamed(
+        AppRoutes.game,
+        arguments: 'invalid-game-arguments',
+      );
 
       await tester.pumpAndSettle();
 
@@ -189,18 +263,27 @@ void main() {
       );
     });
 
-    testWidgets('accepts valid GameArguments', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
+    testWidgets('accepts valid GameArguments', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
       navigator!.pushNamed(
         AppRoutes.game,
-        arguments: const GameArguments(levelNumber: 1),
+        arguments: const GameArguments(
+          levelNumber: GameConfig.minimumLevel,
+        ),
       );
 
       // Do not use pumpAndSettle() here.
@@ -208,57 +291,83 @@ void main() {
       // GameScreen starts a periodic timer after loading the level.
       // pumpAndSettle() can therefore wait indefinitely.
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(
+        const Duration(milliseconds: 100),
+      );
 
       expect(find.byType(GameScreen), findsOneWidget);
     });
 
-    testWidgets('rejects game level number below one', (
+    testWidgets('rejects game level number below configured minimum', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
+      final int invalidLevel =
+          GameConfig.minimumLevel - 1;
+
       navigator!.pushNamed(
         AppRoutes.game,
-        arguments: const GameArguments(levelNumber: 0),
+        arguments: GameArguments(
+          levelNumber: invalidLevel,
+        ),
       );
 
       await tester.pumpAndSettle();
 
       expect(find.text('Unable to open this screen'), findsOneWidget);
 
-      expect(find.text('Invalid level number: 0.'), findsOneWidget);
+      expect(
+        find.text('Invalid level number: $invalidLevel.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('rejects game level number above configured limit', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
-      final invalidLevel = GameConfig.totalLevels + 1;
+      final int invalidLevel =
+          GameConfig.totalLevels + 1;
 
       navigator!.pushNamed(
         AppRoutes.game,
-        arguments: GameArguments(levelNumber: invalidLevel),
+        arguments: GameArguments(
+          levelNumber: invalidLevel,
+        ),
       );
 
       await tester.pumpAndSettle();
 
       expect(find.text('Unable to open this screen'), findsOneWidget);
 
-      expect(find.text('Invalid level number: $invalidLevel.'), findsOneWidget);
+      expect(
+        find.text('Invalid level number: $invalidLevel.'),
+        findsOneWidget,
+      );
     });
 
     /// ------------------------------------------------------------------------
@@ -268,21 +377,29 @@ void main() {
     testWidgets('can return home from a navigation error', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const SudokuApp());
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
-      navigator!.pushNamed(AppRoutes.game, arguments: 'invalid');
+      navigator!.pushNamed(
+        AppRoutes.game,
+        arguments: 'invalid',
+      );
 
       await tester.pumpAndSettle();
 
       expect(find.text('Unable to open this screen'), findsOneWidget);
 
-      final returnHomeButton = find.widgetWithText(
+      final Finder returnHomeButton = find.widgetWithText(
         ElevatedButton,
         'Return Home',
       );
@@ -300,12 +417,19 @@ void main() {
     /// UNKNOWN ROUTES
     /// ------------------------------------------------------------------------
 
-    testWidgets('handles unknown routes safely', (WidgetTester tester) async {
-      await tester.pumpWidget(const SudokuApp());
+    testWidgets('handles unknown routes safely', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const SudokuApp(
+          startupResult: StartupResult.success(),
+        ),
+      );
 
       await tester.pump();
 
-      final navigator = SudokuApp.navigatorKey.currentState;
+      final NavigatorState? navigator =
+          SudokuApp.navigatorKey.currentState;
 
       expect(navigator, isNotNull);
 
@@ -315,7 +439,10 @@ void main() {
 
       expect(find.text('Unable to open this screen'), findsOneWidget);
 
-      expect(find.text('Unknown route:\n/does-not-exist'), findsOneWidget);
+      expect(
+        find.text('Unknown route:\n/does-not-exist'),
+        findsOneWidget,
+      );
     });
   });
 }

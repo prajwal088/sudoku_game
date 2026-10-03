@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../main.dart';
+import '../config/game_config.dart';
+import '../core/navigation.dart';
 import '../services/progress_service.dart';
 
 /// ============================================================================
@@ -31,6 +32,7 @@ import '../services/progress_service.dart';
 ///
 /// The world is NEVER passed as a GameArguments parameter.
 /// ============================================================================
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -48,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen>
   late final Animation<double> _continueScaleAnimation;
 
   /// The next playable global level.
-  int _nextLevel = 1;
+  int _nextLevel = GameConfig.minimumLevel;
 
   bool _isLoading = true;
   bool _isNavigating = false;
@@ -62,7 +64,10 @@ class _HomeScreenState extends State<HomeScreen>
       duration: const Duration(milliseconds: 800),
     );
 
-    _continueScaleAnimation = Tween<double>(begin: 0.96, end: 1.0).animate(
+    _continueScaleAnimation = Tween<double>(
+      begin: 0.96,
+      end: 1.0,
+    ).animate(
       CurvedAnimation(
         parent: _continueAnimationController,
         curve: Curves.easeInOut,
@@ -75,49 +80,71 @@ class _HomeScreenState extends State<HomeScreen>
 
     /// Refresh the home screen whenever progression changes elsewhere.
     _progressSubscription = _progressService.onProgressUpdate.listen((_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      debugPrint('HomeScreen: progress update received. Refreshing...');
+      debugPrint(
+        'HomeScreen: progress update received. Refreshing...',
+      );
 
       _loadProgress();
     });
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// LOAD PROGRESS
-  /// ==========================================================================
+  /// ========================================================================
 
   Future<void> _loadProgress() async {
     try {
-      final int level = await _progressService.getNextUnlockedLevel();
+      final int level =
+          await _progressService.getNextUnlockedLevel();
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
+      final int safeLevel = level.clamp(
+        GameConfig.minimumLevel,
+        GameConfig.totalLevels,
+      );
 
       setState(() {
-        _nextLevel = level < 1 ? 1 : level;
+        _nextLevel = safeLevel;
         _isLoading = false;
       });
     } catch (error, stackTrace) {
-      debugPrint('HomeScreen: failed to load progress: $error');
+      debugPrint(
+        'HomeScreen: failed to load progress: $error',
+      );
 
-      debugPrintStack(stackTrace: stackTrace);
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isLoading = false;
       });
 
-      _showMessage('Could not load your progress.');
+      _showMessage(
+        'Could not load your progress.',
+      );
     }
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// CONTINUE
-  /// ==========================================================================
+  /// ========================================================================
 
   Future<void> _handleContinue() async {
-    if (_isLoading || _isNavigating) return;
+    if (_isLoading || _isNavigating) {
+      return;
+    }
 
     setState(() {
       _isNavigating = true;
@@ -125,13 +152,19 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       /// Always ask ProgressService for the current source of truth.
-      final int globalLevel = await _progressService.getNextUnlockedLevel();
+      final int globalLevel =
+          await _progressService.getNextUnlockedLevel();
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       /// Safety validation.
-      if (globalLevel < 1 || globalLevel > GameConfig.totalLevels) {
-        _showMessage('No playable level is currently available.');
+      if (globalLevel < GameConfig.minimumLevel ||
+          globalLevel > GameConfig.totalLevels) {
+        _showMessage(
+          'No playable level is currently available.',
+        );
         return;
       }
 
@@ -139,24 +172,38 @@ class _HomeScreenState extends State<HomeScreen>
       await Navigator.pushNamed(
         context,
         AppRoutes.game,
-        arguments: GameArguments(levelNumber: globalLevel),
+        arguments: GameArguments(
+          levelNumber: globalLevel,
+        ),
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       /// The player may have completed a level.
       /// Reload the displayed Continue level.
       await _loadProgress();
     } catch (error, stackTrace) {
-      debugPrint('HomeScreen: failed to continue to level: $error');
+      debugPrint(
+        'HomeScreen: failed to continue to level: $error',
+      );
 
-      debugPrintStack(stackTrace: stackTrace);
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      _showMessage('Could not open the level.');
+      _showMessage(
+        'Could not open the level.',
+      );
     } finally {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isNavigating = false;
@@ -164,34 +211,51 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// WORLD MAP
-  /// ==========================================================================
+  /// ========================================================================
 
   Future<void> _openWorldMap() async {
-    if (_isNavigating) return;
+    if (_isNavigating) {
+      return;
+    }
 
     setState(() {
       _isNavigating = true;
     });
 
     try {
-      await Navigator.pushNamed(context, AppRoutes.worlds);
+      await Navigator.pushNamed(
+        context,
+        AppRoutes.worlds,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       /// Progress may have changed while the player was viewing the map.
       await _loadProgress();
     } catch (error, stackTrace) {
-      debugPrint('HomeScreen: failed to open world map: $error');
+      debugPrint(
+        'HomeScreen: failed to open world map: $error',
+      );
 
-      debugPrintStack(stackTrace: stackTrace);
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      _showMessage('Could not open the World Map.');
+      _showMessage(
+        'Could not open the World Map.',
+      );
     } finally {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isNavigating = false;
@@ -199,43 +263,55 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// USER FEEDBACK
-  /// ==========================================================================
+  /// ========================================================================
 
   void _showMessage(String message) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
-    final messenger = ScaffoldMessenger.of(context);
+    final ScaffoldMessengerState messenger =
+        ScaffoldMessenger.of(context);
 
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// BUILD
-  /// ==========================================================================
+  /// ========================================================================
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final ThemeData theme = Theme.of(context);
 
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 32,
+            ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
+              constraints: const BoxConstraints(
+                maxWidth: 420,
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+                children: <Widget>[
                   /// ==========================================================
                   /// GAME ICON
                   /// ==========================================================
+
                   Icon(
                     Icons.grid_on,
                     size: 120,
@@ -247,6 +323,7 @@ class _HomeScreenState extends State<HomeScreen>
                   /// ==========================================================
                   /// TITLE
                   /// ==========================================================
+
                   Text(
                     'Sudoku',
                     style: theme.textTheme.displaySmall?.copyWith(
@@ -270,6 +347,7 @@ class _HomeScreenState extends State<HomeScreen>
                   /// ==========================================================
                   /// CONTINUE BUTTON
                   /// ==========================================================
+
                   ScaleTransition(
                     scale: _continueScaleAnimation,
                     child: SizedBox(
@@ -279,7 +357,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ? null
                             : _handleContinue,
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 17),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 17,
+                          ),
                         ),
                         child: _isLoading
                             ? const SizedBox(
@@ -305,16 +385,22 @@ class _HomeScreenState extends State<HomeScreen>
                   /// ==========================================================
                   /// WORLD MAP
                   /// ==========================================================
+
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
-                      onPressed: _isNavigating ? null : _openWorldMap,
+                      onPressed:
+                          _isNavigating ? null : _openWorldMap,
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                        ),
                       ),
                       child: const Text(
                         'World Map',
-                        style: TextStyle(fontSize: 18),
+                        style: TextStyle(
+                          fontSize: 18,
+                        ),
                       ),
                     ),
                   ),
@@ -324,9 +410,10 @@ class _HomeScreenState extends State<HomeScreen>
                   /// ==========================================================
                   /// SECONDARY OPTIONS
                   /// ==========================================================
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
+                    children: <Widget>[
                       _buildSecondaryAction(
                         context: context,
                         icon: Icons.bar_chart,
@@ -367,9 +454,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// SECONDARY ACTION
-  /// ==========================================================================
+  /// ========================================================================
 
   Widget _buildSecondaryAction({
     required BuildContext context,
@@ -377,14 +464,17 @@ class _HomeScreenState extends State<HomeScreen>
     required String label,
     required VoidCallback? onPressed,
   }) {
-    final theme = Theme.of(context);
+    final ThemeData theme = Theme.of(context);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: [
+      children: <Widget>[
         IconButton(
           tooltip: label,
-          icon: Icon(icon, size: 28),
+          icon: Icon(
+            icon,
+            size: 28,
+          ),
           onPressed: onPressed,
         ),
         Text(
@@ -397,9 +487,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// ==========================================================================
+  /// ========================================================================
   /// DISPOSE
-  /// ==========================================================================
+  /// ========================================================================
 
   @override
   void dispose() {

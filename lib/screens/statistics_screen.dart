@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../main.dart';
 import '../services/progress_service.dart';
 import '../widgets/statistics_card.dart';
+import '../config/game_config.dart';
 
 /// ============================================================================
 /// StatisticsScreen

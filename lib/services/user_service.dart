@@ -23,7 +23,7 @@ import 'package:uuid/uuid.dart';
 ///
 /// Example:
 ///
-/// Future<void> main() async {
+/// Future&ltvoid&gt main() async {
 ///   WidgetsFlutterBinding.ensureInitialized();
 ///
 ///   await UserService().init();
