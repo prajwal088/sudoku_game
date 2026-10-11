@@ -48,6 +48,11 @@
 ///
 ///     World 10
 ///       └── Level 25 -> Global 250
+///
+/// Implementation note:
+/// Public methods validate their arguments exactly once and then use private,
+/// unchecked helpers for the arithmetic, so composite operations (for example
+/// [getWorldAndLocalLevel]) do not re-validate the same value repeatedly.
 /// ============================================================================
 
 library;
@@ -82,8 +87,7 @@ abstract final class GameConfig {
   ///
   /// This value is derived from the campaign structure and must not be
   /// maintained independently.
-  static const int totalLevels =
-      totalWorlds * levelsPerWorld;
+  static const int totalLevels = totalWorlds * levelsPerWorld;
 
   // ==========================================================================
   // STAR SYSTEM
@@ -96,12 +100,10 @@ abstract final class GameConfig {
   static const int maxStarsPerLevel = 3;
 
   /// Maximum number of stars available in one world.
-  static const int maxStarsPerWorld =
-      levelsPerWorld * maxStarsPerLevel;
+  static const int maxStarsPerWorld = levelsPerWorld * maxStarsPerLevel;
 
   /// Maximum number of stars available across the complete campaign.
-  static const int maxStarsTotal =
-      totalLevels * maxStarsPerLevel;
+  static const int maxStarsTotal = totalLevels * maxStarsPerLevel;
 
   // ==========================================================================
   // GAMEPLAY LIMITS
@@ -121,64 +123,59 @@ abstract final class GameConfig {
 
   /// Validates the static configuration itself.
   ///
-  /// Intended for startup assertions, tests, and diagnostics.
+  /// Intended for startup assertions, tests, and diagnostics. It guards
+  /// against future edits (for example a derived value being replaced with a
+  /// hand-written literal that no longer matches the structure).
+  ///
+  /// Recommended usage (debug builds only, zero cost in release):
+  ///
+  /// ```dart
+  /// assert(() {
+  ///   GameConfig.validateConfiguration();
+  ///   return true;
+  /// }());
+  /// ```
   ///
   /// This does not validate player state.
   static void validateConfiguration() {
     if (minimumWorld != 1) {
-      throw StateError(
-        'GameConfig.minimumWorld must equal 1.',
-      );
+      throw StateError('GameConfig.minimumWorld must equal 1.');
     }
 
     if (minimumLevel != 1) {
-      throw StateError(
-        'GameConfig.minimumLevel must equal 1.',
-      );
+      throw StateError('GameConfig.minimumLevel must equal 1.');
     }
 
     if (minimumLocalLevel != 1) {
-      throw StateError(
-        'GameConfig.minimumLocalLevel must equal 1.',
-      );
+      throw StateError('GameConfig.minimumLocalLevel must equal 1.');
     }
 
     if (totalWorlds <= 0) {
-      throw StateError(
-        'GameConfig.totalWorlds must be greater than 0.',
-      );
+      throw StateError('GameConfig.totalWorlds must be greater than 0.');
     }
 
     if (levelsPerWorld <= 0) {
-      throw StateError(
-        'GameConfig.levelsPerWorld must be greater than 0.',
-      );
+      throw StateError('GameConfig.levelsPerWorld must be greater than 0.');
     }
 
     if (totalLevels != totalWorlds * levelsPerWorld) {
       throw StateError(
-        'GameConfig.totalLevels must equal '
-        'totalWorlds * levelsPerWorld.',
+        'GameConfig.totalLevels must equal totalWorlds * levelsPerWorld.',
       );
     }
 
     if (minStarsPerLevel < 0) {
-      throw StateError(
-        'GameConfig.minStarsPerLevel cannot be negative.',
-      );
+      throw StateError('GameConfig.minStarsPerLevel cannot be negative.');
     }
 
     if (maxStarsPerLevel < minStarsPerLevel) {
       throw StateError(
-        'GameConfig.maxStarsPerLevel cannot be less than '
-        'minStarsPerLevel.',
+        'GameConfig.maxStarsPerLevel cannot be less than minStarsPerLevel.',
       );
     }
 
     if (maximumHintsPerLevel < 0) {
-      throw StateError(
-        'GameConfig.maximumHintsPerLevel cannot be negative.',
-      );
+      throw StateError('GameConfig.maximumHintsPerLevel cannot be negative.');
     }
 
     final int? maximumMistakes = maximumMistakesPerLevel;
@@ -189,16 +186,14 @@ abstract final class GameConfig {
       );
     }
 
-    if (maxStarsPerWorld !=
-        levelsPerWorld * maxStarsPerLevel) {
+    if (maxStarsPerWorld != levelsPerWorld * maxStarsPerLevel) {
       throw StateError(
         'GameConfig.maxStarsPerWorld is inconsistent '
         'with the campaign configuration.',
       );
     }
 
-    if (maxStarsTotal !=
-        totalLevels * maxStarsPerLevel) {
+    if (maxStarsTotal != totalLevels * maxStarsPerLevel) {
       throw StateError(
         'GameConfig.maxStarsTotal is inconsistent '
         'with the campaign configuration.',
@@ -212,32 +207,27 @@ abstract final class GameConfig {
 
   /// Returns true when [globalLevel] is a valid campaign level.
   static bool isValidGlobalLevel(int globalLevel) {
-    return globalLevel >= minimumLevel &&
-        globalLevel <= totalLevels;
+    return globalLevel >= minimumLevel && globalLevel <= totalLevels;
   }
 
   /// Returns true when [world] is a valid campaign world.
   static bool isValidWorld(int world) {
-    return world >= minimumWorld &&
-        world <= totalWorlds;
+    return world >= minimumWorld && world <= totalWorlds;
   }
 
   /// Returns true when [localLevel] is valid inside a world.
   static bool isValidLocalLevel(int localLevel) {
-    return localLevel >= minimumLocalLevel &&
-        localLevel <= levelsPerWorld;
+    return localLevel >= minimumLocalLevel && localLevel <= levelsPerWorld;
   }
 
   /// Returns true when [stars] is within the configured star range.
   static bool isValidStars(int stars) {
-    return stars >= minStarsPerLevel &&
-        stars <= maxStarsPerLevel;
+    return stars >= minStarsPerLevel && stars <= maxStarsPerLevel;
   }
 
   /// Returns true when [hints] is within the configured hint range.
   static bool isValidHints(int hints) {
-    return hints >= 0 &&
-        hints <= maximumHintsPerLevel;
+    return hints >= 0 && hints <= maximumHintsPerLevel;
   }
 
   /// Returns true when [mistakes] is valid under the configured mistake rule.
@@ -268,8 +258,7 @@ abstract final class GameConfig {
   static int getFirstLevelForWorld(int world) {
     _validateWorld(world);
 
-    return ((world - minimumWorld) * levelsPerWorld) +
-        minimumLevel;
+    return _firstLevelOf(world);
   }
 
   /// Returns the last global level belonging to [world].
@@ -282,9 +271,7 @@ abstract final class GameConfig {
   static int getLastLevelForWorld(int world) {
     _validateWorld(world);
 
-    return getFirstLevelForWorld(world) +
-        levelsPerWorld -
-        1;
+    return _lastLevelOf(world);
   }
 
   /// Converts a global level to its world number.
@@ -298,9 +285,7 @@ abstract final class GameConfig {
   static int getWorldFromGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return ((globalLevel - minimumLevel) ~/
-            levelsPerWorld) +
-        minimumWorld;
+    return _worldOf(globalLevel);
   }
 
   /// Converts a global level to its local level inside its world.
@@ -311,14 +296,10 @@ abstract final class GameConfig {
   /// - Global 26 -> Local 1
   /// - Global 30 -> Local 5
   /// - Global 55 -> Local 5
-  static int getLocalLevelFromGlobalLevel(
-    int globalLevel,
-  ) {
+  static int getLocalLevelFromGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return ((globalLevel - minimumLevel) %
-            levelsPerWorld) +
-        minimumLocalLevel;
+    return _localLevelOf(globalLevel);
   }
 
   /// Converts a world and local level into a global level.
@@ -329,15 +310,11 @@ abstract final class GameConfig {
   /// - World 2, Level 1  -> Global 26
   /// - World 3, Level 5  -> Global 55
   /// - World 10, Level 25 -> Global 250
-  static int getGlobalLevel(
-    int world,
-    int localLevel,
-  ) {
+  static int getGlobalLevel(int world, int localLevel) {
     _validateWorld(world);
     _validateLocalLevel(localLevel);
 
-    return ((world - minimumWorld) * levelsPerWorld) +
-        localLevel;
+    return _firstLevelOf(world) + (localLevel - minimumLocalLevel);
   }
 
   /// Returns both world and local level for a global level.
@@ -347,14 +324,12 @@ abstract final class GameConfig {
   /// - `level`
   ///
   /// Prefer the individual conversion methods when only one value is needed.
-  static Map<String, int> getWorldAndLocalLevel(
-    int globalLevel,
-  ) {
+  static Map<String, int> getWorldAndLocalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
     return <String, int>{
-      'world': getWorldFromGlobalLevel(globalLevel),
-      'level': getLocalLevelFromGlobalLevel(globalLevel),
+      'world': _worldOf(globalLevel),
+      'level': _localLevelOf(globalLevel),
     };
   }
 
@@ -372,8 +347,7 @@ abstract final class GameConfig {
   static bool completesWorld(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return getLocalLevelFromGlobalLevel(globalLevel) ==
-        levelsPerWorld;
+    return _localLevelOf(globalLevel) == levelsPerWorld;
   }
 
   /// Returns true when [world] is the final configured world.
@@ -391,7 +365,7 @@ abstract final class GameConfig {
   }
 
   // ==========================================================================
-  // NAVIGATION
+  // LEVEL NAVIGATION
   // ==========================================================================
 
   /// Returns the next global level.
@@ -400,26 +374,16 @@ abstract final class GameConfig {
   static int? getNextGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    if (isFinalLevel(globalLevel)) {
-      return null;
-    }
-
-    return globalLevel + 1;
+    return globalLevel == totalLevels ? null : globalLevel + 1;
   }
 
   /// Returns the previous global level.
   ///
   /// Returns null when [globalLevel] is the first campaign level.
-  static int? getPreviousGlobalLevel(
-    int globalLevel,
-  ) {
+  static int? getPreviousGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    if (globalLevel == minimumLevel) {
-      return null;
-    }
-
-    return globalLevel - 1;
+    return globalLevel == minimumLevel ? null : globalLevel - 1;
   }
 
   // ==========================================================================
@@ -432,11 +396,7 @@ abstract final class GameConfig {
   static int? getNextWorld(int world) {
     _validateWorld(world);
 
-    if (isFinalWorld(world)) {
-      return null;
-    }
-
-    return world + 1;
+    return world == totalWorlds ? null : world + 1;
   }
 
   /// Returns the previous world.
@@ -445,11 +405,7 @@ abstract final class GameConfig {
   static int? getPreviousWorld(int world) {
     _validateWorld(world);
 
-    if (world == minimumWorld) {
-      return null;
-    }
-
-    return world - 1;
+    return world == minimumWorld ? null : world - 1;
   }
 
   // ==========================================================================
@@ -462,10 +418,9 @@ abstract final class GameConfig {
   ///
   ///     [26, 50]
   static List<int> getLevelRangeForWorld(int world) {
-    final int first = getFirstLevelForWorld(world);
-    final int last = getLastLevelForWorld(world);
+    _validateWorld(world);
 
-    return <int>[first, last];
+    return <int>[_firstLevelOf(world), _lastLevelOf(world)];
   }
 
   /// Returns the number of levels configured in [world].
@@ -493,9 +448,33 @@ abstract final class GameConfig {
         'maxStarsPerWorld: $maxStarsPerWorld, '
         'maxStarsTotal: $maxStarsTotal, '
         'maximumHintsPerLevel: $maximumHintsPerLevel, '
-        'maximumMistakesPerLevel: '
-        '$maximumMistakesPerLevel'
+        'maximumMistakesPerLevel: $maximumMistakesPerLevel'
         ')';
+  }
+
+  // ==========================================================================
+  // PRIVATE ARITHMETIC (UNCHECKED)
+  // ==========================================================================
+  //
+  // These assume their argument has already been validated by the caller.
+  // They exist so each public method validates once and the formulas live in
+  // exactly one place.
+  // ==========================================================================
+
+  static int _firstLevelOf(int world) {
+    return ((world - minimumWorld) * levelsPerWorld) + minimumLevel;
+  }
+
+  static int _lastLevelOf(int world) {
+    return _firstLevelOf(world) + levelsPerWorld - 1;
+  }
+
+  static int _worldOf(int globalLevel) {
+    return ((globalLevel - minimumLevel) ~/ levelsPerWorld) + minimumWorld;
+  }
+
+  static int _localLevelOf(int globalLevel) {
+    return ((globalLevel - minimumLevel) % levelsPerWorld) + minimumLocalLevel;
   }
 
   // ==========================================================================
@@ -507,8 +486,7 @@ abstract final class GameConfig {
       throw ArgumentError.value(
         globalLevel,
         'globalLevel',
-        'Global level must be between '
-            '$minimumLevel and $totalLevels.',
+        'Global level must be between $minimumLevel and $totalLevels.',
       );
     }
   }
@@ -518,8 +496,7 @@ abstract final class GameConfig {
       throw ArgumentError.value(
         world,
         'world',
-        'World must be between '
-            '$minimumWorld and $totalWorlds.',
+        'World must be between $minimumWorld and $totalWorlds.',
       );
     }
   }

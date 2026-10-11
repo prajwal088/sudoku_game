@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,7 +35,10 @@ import '../config/game_config.dart';
 /// - SharedPreferences provides local persistence.
 /// - Progress is cached in memory after initialization.
 /// - Mutations are serialized to prevent concurrent-write races.
-/// - Returned progress maps are defensive copies.
+/// - Public progress maps are defensive copies; internal reads use the cache
+///   directly (read-only) to avoid copying on every query.
+/// - All Future-returning APIs report errors through the returned Future
+///   (never by throwing synchronously).
 ///
 /// This service does NOT:
 /// - Own static game configuration.
@@ -49,7 +53,8 @@ import '../config/game_config.dart';
 /// await ProgressService().init();
 /// ```
 ///
-/// before using progression APIs.
+/// before using progression APIs. [init] is idempotent and safe to retry
+/// after a failure.
 ///
 /// This service is a singleton and is intended to live for the lifetime
 /// of the application.
@@ -71,6 +76,10 @@ class ProgressService {
   // ==========================================================================
 
   static const String _progressKey = 'sudoku_progress';
+
+  /// Corrupt persisted progress is copied here before being replaced, so it
+  /// can be inspected or recovered instead of being silently lost.
+  static const String _corruptBackupKey = 'sudoku_progress_corrupt_backup';
 
   /// Current persistence schema version.
   ///
@@ -119,10 +128,18 @@ class ProgressService {
       StreamController<void>.broadcast();
 
   /// Emits the world number when that world is completed for the first time.
+  ///
+  /// This includes the final world.
   Stream<int> get onWorldCompleted => _worldCompletionController.stream;
 
   /// Emits after progress has been successfully persisted.
   Stream<void> get onProgressUpdate => _progressUpdateController.stream;
+
+  void _notifyProgressUpdated() {
+    if (!_progressUpdateController.isClosed) {
+      _progressUpdateController.add(null);
+    }
+  }
 
   // ==========================================================================
   // STORAGE / CACHE
@@ -142,55 +159,20 @@ class ProgressService {
 
   /// Serializes persistence mutations.
   ///
-  /// A failed mutation must NOT permanently poison the queue.
-  ///
-  /// Every new mutation therefore starts after the previous operation has
-  /// settled, regardless of whether the previous operation succeeded or
-  /// failed.
+  /// The queue itself never holds an error (failures are delivered to the
+  /// caller of the failed mutation only), so one failed mutation can never
+  /// block or poison later ones.
   Future<void> _mutationQueue = Future<void>.value();
 
-  Future<T> _runMutation<T>(
-    Future<T> Function() mutation,
-  ) {
-    final Completer<T> completer = Completer<T>();
+  Future<T> _runMutation<T>(Future<T> Function() mutation) {
+    final Future<T> result = _mutationQueue.then<T>((_) => mutation());
 
-    final Future<void> operation = _mutationQueue.then<void>(
-      (_) async {
-        try {
-          final T result = await mutation();
-
-          if (!completer.isCompleted) {
-            completer.complete(result);
-          }
-        } catch (error, stackTrace) {
-          if (!completer.isCompleted) {
-            completer.completeError(error, stackTrace);
-          }
-        }
-      },
-      onError: (_, _) async {
-        // Previous mutation failed. The failure has already been delivered
-        // to its caller, so this mutation is still allowed to proceed.
-        try {
-          final T result = await mutation();
-
-          if (!completer.isCompleted) {
-            completer.complete(result);
-          }
-        } catch (error, stackTrace) {
-          if (!completer.isCompleted) {
-            completer.completeError(error, stackTrace);
-          }
-        }
-      },
-    );
-
-    // Keep the queue alive after an error so future mutations can continue.
-    _mutationQueue = operation.catchError(
+    _mutationQueue = result.then<void>(
       (_) {},
+      onError: (Object _, StackTrace _) {},
     );
 
-    return completer.future;
+    return result;
   }
 
   // ==========================================================================
@@ -199,40 +181,30 @@ class ProgressService {
 
   /// Initializes the service.
   ///
-  /// Safe to call multiple times.
-  ///
-  /// Concurrent callers share the same initialization operation.
-  Future<void> init() {
+  /// Safe to call multiple times. Concurrent callers share the same
+  /// initialization operation. If initialization fails, a later call retries.
+  Future<void> init() async {
     _ensureNotDisposed();
 
     if (_isInitialized) {
-      return Future<void>.value();
+      return;
     }
 
-    final Future<void>? existingFuture = _initializationFuture;
-
-    if (existingFuture != null) {
-      return existingFuture;
-    }
-
-    final Future<void> future = _initialize();
-
-    _initializationFuture = future;
-
-    return future.whenComplete(() {
-      if (identical(_initializationFuture, future)) {
-        _initializationFuture = null;
-      }
+    final Future<void> inFlight = _initializationFuture ??=
+        _initialize().whenComplete(() {
+      _initializationFuture = null;
     });
+
+    await inFlight;
   }
 
   Future<void> _initialize() async {
     try {
-      final SharedPreferences prefs =
-          await SharedPreferences.getInstance();
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
 
-      final Map<String, dynamic> progress =
-          _loadProgressFromPreferences(prefs);
+      final Map<String, dynamic> progress = await _loadProgressFromPreferences(
+        prefs,
+      );
 
       _prefs = prefs;
       _cachedProgress = progress;
@@ -243,9 +215,7 @@ class ProgressService {
       _isInitialized = false;
 
       Error.throwWithStackTrace(
-        StateError(
-          'ProgressService initialization failed: $error',
-        ),
+        StateError('ProgressService initialization failed: $error'),
         stackTrace,
       );
     }
@@ -272,44 +242,54 @@ class ProgressService {
 
   /// Returns the current progress as a defensive copy.
   Future<Map<String, dynamic>> loadProgress() async {
-    _ensureInitialized();
-
-    final Map<String, dynamic>? cached = _cachedProgress;
-
-    if (cached == null) {
-      throw StateError(
-        'ProgressService cache is unavailable.',
-      );
-    }
-
-    return _deepCopyProgress(cached);
+    return _deepCopyProgress(_progress);
   }
 
-  Map<String, dynamic> _loadProgressFromPreferences(
+  Future<Map<String, dynamic>> _loadProgressFromPreferences(
     SharedPreferences prefs,
-  ) {
-    final String? rawData = prefs.getString(_progressKey);
+  ) async {
+    final Object? raw = prefs.get(_progressKey);
 
-    if (rawData == null || rawData.trim().isEmpty) {
+    if (raw == null || (raw is String && raw.trim().isEmpty)) {
       return _defaultProgress();
     }
 
     try {
-      final dynamic decoded = jsonDecode(rawData);
-
-      if (decoded is! Map) {
-        return _defaultProgress();
+      if (raw is! String) {
+        throw const FormatException('Stored progress is not a string.');
       }
 
-      final Map<String, dynamic> rawMap =
-          Map<String, dynamic>.from(decoded);
+      final dynamic decoded = jsonDecode(raw);
 
-      return _normalizeProgress(rawMap);
-    } catch (_) {
+      if (decoded is! Map) {
+        throw const FormatException('Stored progress is not an object.');
+      }
+
+      return _normalizeProgress(Map<String, dynamic>.from(decoded));
+    } catch (error) {
       // Corrupt local progress must never prevent the application from
-      // starting. The invalid persisted value is intentionally preserved
-      // rather than silently overwritten.
+      // starting. A copy is kept under a separate key so the data is not
+      // irrecoverably lost when the next save overwrites the main key.
+      developer.log(
+        'ProgressService: stored progress is corrupt, resetting: $error',
+        name: 'ProgressService',
+        level: 1000,
+      );
+
+      await _backupCorruptProgress(prefs, raw);
+
       return _defaultProgress();
+    }
+  }
+
+  Future<void> _backupCorruptProgress(
+    SharedPreferences prefs,
+    Object raw,
+  ) async {
+    try {
+      await prefs.setString(_corruptBackupKey, raw.toString());
+    } catch (_) {
+      // Best effort only.
     }
   }
 
@@ -325,9 +305,7 @@ class ProgressService {
   /// [currentLevel] and [highestUnlockedWorld] are always derived from
   /// completed levels and therefore cannot be manipulated through persisted
   /// derived values.
-  Map<String, dynamic> _normalizeProgress(
-    Map<String, dynamic> raw,
-  ) {
+  Map<String, dynamic> _normalizeProgress(Map<String, dynamic> raw) {
     final Set<int> completedLevels = _normalizeCompletedLevels(
       raw['completedLevels'],
     );
@@ -342,28 +320,17 @@ class ProgressService {
       completedLevels,
     );
 
-    final int currentLevel = _deriveCurrentLevel(
-      completedLevels,
-    );
-
-    final int highestUnlockedWorld =
-        _deriveHighestUnlockedWorld(
-      completedLevels,
-    );
-
     return <String, dynamic>{
       'version': _progressVersion,
-      'currentLevel': currentLevel,
+      'currentLevel': _deriveCurrentLevel(completedLevels),
       'completedLevels': completedLevels.toList()..sort(),
       'bestTimes': bestTimes,
       'stars': stars,
-      'highestUnlockedWorld': highestUnlockedWorld,
+      'highestUnlockedWorld': _deriveHighestUnlockedWorld(completedLevels),
     };
   }
 
-  Set<int> _normalizeCompletedLevels(
-    dynamic rawCompleted,
-  ) {
+  Set<int> _normalizeCompletedLevels(dynamic rawCompleted) {
     final Set<int> completedLevels = <int>{};
 
     if (rawCompleted is! List) {
@@ -373,8 +340,7 @@ class ProgressService {
     for (final dynamic value in rawCompleted) {
       final int? level = _parseIntOrNull(value);
 
-      if (level != null &&
-          GameConfig.isValidGlobalLevel(level)) {
+      if (level != null && GameConfig.isValidGlobalLevel(level)) {
         completedLevels.add(level);
       }
     }
@@ -393,10 +359,7 @@ class ProgressService {
     }
 
     rawBestTimes.forEach((dynamic key, dynamic value) {
-      final int? level = int.tryParse(
-        key.toString(),
-      );
-
+      final int? level = int.tryParse(key.toString());
       final int? time = _parseIntOrNull(value);
 
       if (level == null ||
@@ -423,10 +386,7 @@ class ProgressService {
     }
 
     rawStars.forEach((dynamic key, dynamic value) {
-      final int? level = int.tryParse(
-        key.toString(),
-      );
-
+      final int? level = int.tryParse(key.toString());
       final int? starValue = _parseIntOrNull(value);
 
       if (level == null ||
@@ -448,15 +408,10 @@ class ProgressService {
 
   /// Derives the next progression level from completed levels.
   ///
-  /// Example:
-  ///
-  /// completed: [1, 2, 3]
-  /// current:   4
+  /// Example: completed [1, 2, 3] -> current 4.
   ///
   /// When every level has been completed, the final level remains selected.
-  int _deriveCurrentLevel(
-    Set<int> completedLevels,
-  ) {
+  int _deriveCurrentLevel(Set<int> completedLevels) {
     for (
       int level = GameConfig.minimumLevel;
       level <= GameConfig.totalLevels;
@@ -472,13 +427,10 @@ class ProgressService {
 
   /// Derives the highest unlocked world from completed world boundaries.
   ///
-  /// World 1 is always unlocked.
-  ///
-  /// World 2 becomes unlocked when the final level of World 1 is completed.
-  /// World 3 becomes unlocked when the final level of World 2 is completed.
-  int _deriveHighestUnlockedWorld(
-    Set<int> completedLevels,
-  ) {
+  /// World 1 is always unlocked. World N + 1 unlocks when the final level of
+  /// World N is completed. There is no world after the final world, so
+  /// completing it does not change this value.
+  int _deriveHighestUnlockedWorld(Set<int> completedLevels) {
     int highestWorld = GameConfig.minimumWorld;
 
     for (
@@ -486,9 +438,7 @@ class ProgressService {
       world < GameConfig.totalWorlds;
       world++
     ) {
-      final int finalLevel = GameConfig.getLastLevelForWorld(
-        world,
-      );
+      final int finalLevel = GameConfig.getLastLevelForWorld(world);
 
       if (!completedLevels.contains(finalLevel)) {
         break;
@@ -506,55 +456,43 @@ class ProgressService {
 
   /// Persists supplied progress after canonical normalization.
   ///
-  /// For normal gameplay, prefer [completeLevel] and [resetProgress].
-  ///
-  /// This method remains public for controlled migration/testing use.
-  Future<void> saveProgress(
-    Map<String, dynamic> progress,
-  ) {
+  /// For normal gameplay, prefer [completeLevel] and [resetProgress]; this
+  /// method bypasses the sequential-progression rules and exists for
+  /// controlled migration/testing use.
+  Future<void> saveProgress(Map<String, dynamic> progress) async {
     _ensureInitialized();
 
-    return _runMutation(() async {
+    await _runMutation<void>(() async {
       await _saveProgressInternal(progress);
+      _notifyProgressUpdated();
     });
   }
 
-  Future<void> _saveProgressInternal(
-    Map<String, dynamic> progress,
-  ) async {
+  Future<void> _saveProgressInternal(Map<String, dynamic> progress) async {
     final SharedPreferences? prefs = _prefs;
 
     if (prefs == null) {
-      throw StateError(
-        'ProgressService storage is unavailable.',
-      );
+      throw StateError('ProgressService storage is unavailable.');
     }
 
-    final Map<String, dynamic> normalized =
-        _normalizeProgress(
+    final Map<String, dynamic> normalized = _normalizeProgress(
       Map<String, dynamic>.from(progress),
     );
 
     final String encoded = jsonEncode(normalized);
 
     try {
-      final bool saved = await prefs.setString(
-        _progressKey,
-        encoded,
-      );
+      final bool saved = await prefs.setString(_progressKey, encoded);
 
       if (!saved) {
-        throw StateError(
-          'SharedPreferences could not save progress.',
-        );
+        throw StateError('SharedPreferences could not save progress.');
       }
 
+      // The cache is only updated after a successful write.
       _cachedProgress = normalized;
     } catch (error, stackTrace) {
       Error.throwWithStackTrace(
-        StateError(
-          'Could not save progress: $error',
-        ),
+        StateError('Could not save progress: $error'),
         stackTrace,
       );
     }
@@ -571,73 +509,49 @@ class ProgressService {
   /// - World 1, Level 25 -> Global 25
   /// - World 2, Level 1  -> Global 26
   /// - World 10, Level 25 -> Global 250
-  int getGlobalLevel(
-    int world,
-    int level,
-  ) {
+  int getGlobalLevel(int world, int level) {
     _validateWorld(world);
     _validateLocalLevel(level);
 
-    return GameConfig.getGlobalLevel(
-      world,
-      level,
-    );
+    return GameConfig.getGlobalLevel(world, level);
   }
 
   /// Converts a global level into its world number.
-  int getWorldFromGlobal(
-    int globalLevel,
-  ) {
+  int getWorldFromGlobal(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return GameConfig.getWorldFromGlobalLevel(
-      globalLevel,
-    );
+    return GameConfig.getWorldFromGlobalLevel(globalLevel);
   }
 
   /// Converts a global level into its local level inside the world.
-  int getLevelInWorld(
-    int globalLevel,
-  ) {
+  int getLevelInWorld(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return GameConfig.getLocalLevelFromGlobalLevel(
-      globalLevel,
-    );
+    return GameConfig.getLocalLevelFromGlobalLevel(globalLevel);
   }
 
   /// Returns the world and local level for a global level.
-  Map<String, int> getWorldAndLevel(
-    int globalLevel,
-  ) {
+  Map<String, int> getWorldAndLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
     return <String, int>{
-      'world': getWorldFromGlobal(globalLevel),
-      'level': getLevelInWorld(globalLevel),
+      'world': GameConfig.getWorldFromGlobalLevel(globalLevel),
+      'level': GameConfig.getLocalLevelFromGlobalLevel(globalLevel),
     };
   }
 
   /// Returns the first global level in [world].
-  int getWorldFirstLevel(
-    int world,
-  ) {
+  int getWorldFirstLevel(int world) {
     _validateWorld(world);
 
-    return GameConfig.getFirstLevelForWorld(
-      world,
-    );
+    return GameConfig.getFirstLevelForWorld(world);
   }
 
   /// Returns the last global level in [world].
-  int getWorldLastLevel(
-    int world,
-  ) {
+  int getWorldLastLevel(int world) {
     _validateWorld(world);
 
-    return GameConfig.getLastLevelForWorld(
-      world,
-    );
+    return GameConfig.getLastLevelForWorld(world);
   }
 
   // ==========================================================================
@@ -653,11 +567,15 @@ class ProgressService {
   /// - Best stars are the highest recorded stars.
   /// - Completing a world's final level unlocks the next world.
   /// - Notifications are emitted only after persistence succeeds.
+  ///
+  /// Throws (through the returned Future) an [ArgumentError] for invalid
+  /// arguments and a [StateError] for out-of-order completion or storage
+  /// failures.
   Future<void> completeLevel({
     required int globalLevel,
     required int timeInSeconds,
     required int stars,
-  }) {
+  }) async {
     _ensureInitialized();
 
     _validateGlobalLevel(globalLevel);
@@ -680,51 +598,26 @@ class ProgressService {
       );
     }
 
-    return _runMutation(() async {
-      final Map<String, dynamic>? cached = _cachedProgress;
-
-      if (cached == null) {
-        throw StateError(
-          'ProgressService cache is unavailable.',
-        );
-      }
-
-      final Map<String, dynamic> progress =
-          _deepCopyProgress(cached);
+    await _runMutation<void>(() async {
+      final Map<String, dynamic> progress = _deepCopyProgress(_progress);
 
       final Set<int> completed = <int>{
-        ...List<int>.from(
-          progress['completedLevels'] as List<int>,
-        ),
+        ...(progress['completedLevels'] as List<int>),
       };
 
-      final Map<String, int> bestTimes = <String, int>{
-        ...Map<String, int>.from(
-          progress['bestTimes'] as Map<String, int>,
-        ),
-      };
+      final Map<String, int> bestTimes =
+          progress['bestTimes'] as Map<String, int>;
 
-      final Map<String, int> starsMap = <String, int>{
-        ...Map<String, int>.from(
-          progress['stars'] as Map<String, int>,
-        ),
-      };
+      final Map<String, int> starsMap = progress['stars'] as Map<String, int>;
 
-      final int currentLevel =
-          _deriveCurrentLevel(completed);
-
-      final int previousHighestWorld =
-          _deriveHighestUnlockedWorld(completed);
-
-      final bool wasAlreadyCompleted =
-          completed.contains(globalLevel);
+      final int currentLevel = _deriveCurrentLevel(completed);
+      final bool wasAlreadyCompleted = completed.contains(globalLevel);
 
       // ----------------------------------------------------------------------
       // SEQUENTIAL PROGRESSION
       // ----------------------------------------------------------------------
 
-      if (!wasAlreadyCompleted &&
-          globalLevel != currentLevel) {
+      if (!wasAlreadyCompleted && globalLevel != currentLevel) {
         throw StateError(
           'Cannot complete level $globalLevel. '
           'Current progression level is $currentLevel.',
@@ -734,32 +627,20 @@ class ProgressService {
       final String levelKey = globalLevel.toString();
 
       // ----------------------------------------------------------------------
-      // COMPLETION
+      // COMPLETION, BEST TIME, BEST STARS
       // ----------------------------------------------------------------------
 
       completed.add(globalLevel);
 
-      // ----------------------------------------------------------------------
-      // BEST TIME
-      // ----------------------------------------------------------------------
+      final int? previousBestTime = bestTimes[levelKey];
 
-      final int? previousBestTime =
-          bestTimes[levelKey];
-
-      if (previousBestTime == null ||
-          timeInSeconds < previousBestTime) {
+      if (previousBestTime == null || timeInSeconds < previousBestTime) {
         bestTimes[levelKey] = timeInSeconds;
       }
 
-      // ----------------------------------------------------------------------
-      // BEST STARS
-      // ----------------------------------------------------------------------
+      final int? previousStars = starsMap[levelKey];
 
-      final int? previousStars =
-          starsMap[levelKey];
-
-      if (previousStars == null ||
-          stars > previousStars) {
+      if (previousStars == null || stars > previousStars) {
         starsMap[levelKey] = stars;
       }
 
@@ -767,46 +648,35 @@ class ProgressService {
       // DERIVED PROGRESSION
       // ----------------------------------------------------------------------
 
-      final int newCurrentLevel =
-          _deriveCurrentLevel(completed);
+      final int world = GameConfig.getWorldFromGlobalLevel(globalLevel);
+      final int localLevel = GameConfig.getLocalLevelFromGlobalLevel(
+        globalLevel,
+      );
 
-      final int newHighestUnlockedWorld =
-          _deriveHighestUnlockedWorld(completed);
-
-      final int world =
-          getWorldFromGlobal(globalLevel);
-
-      final int localLevel =
-          getLevelInWorld(globalLevel);
-
+      // Levels are completed sequentially, so finishing a world's last level
+      // for the first time means the whole world is now complete. This is
+      // true for the final world as well (which unlocks no further world).
       final bool isNewWorldCompletion =
-          !wasAlreadyCompleted &&
-          localLevel == GameConfig.levelsPerWorld;
+          !wasAlreadyCompleted && localLevel == GameConfig.levelsPerWorld;
 
-      final Map<String, dynamic> updatedProgress =
-          <String, dynamic>{
+      final Map<String, dynamic> updatedProgress = <String, dynamic>{
         'version': _progressVersion,
-        'currentLevel': newCurrentLevel,
+        'currentLevel': _deriveCurrentLevel(completed),
         'completedLevels': completed.toList()..sort(),
         'bestTimes': bestTimes,
         'stars': starsMap,
-        'highestUnlockedWorld':
-            newHighestUnlockedWorld,
+        'highestUnlockedWorld': _deriveHighestUnlockedWorld(completed),
       };
 
       // Persist first.
       await _saveProgressInternal(updatedProgress);
 
       // Notify only after persistence succeeds.
-      if (isNewWorldCompletion &&
-          newHighestUnlockedWorld > previousHighestWorld &&
-          !_worldCompletionController.isClosed) {
+      if (isNewWorldCompletion && !_worldCompletionController.isClosed) {
         _worldCompletionController.add(world);
       }
 
-      if (!_progressUpdateController.isClosed) {
-        _progressUpdateController.add(null);
-      }
+      _notifyProgressUpdated();
     });
   }
 
@@ -823,45 +693,33 @@ class ProgressService {
   /// - avgSpeed
   /// - completionPercent
   Future<Map<String, dynamic>> getGlobalStats() async {
-    final Map<String, dynamic> progress =
-        await loadProgress();
+    final Map<String, dynamic> progress = _progress;
 
-    final List<int> completed =
-        List<int>.from(
-      progress['completedLevels'] as List<int>,
-    );
-
+    final List<int> completed = progress['completedLevels'] as List<int>;
     final Map<String, int> bestTimes =
-        Map<String, int>.from(
-      progress['bestTimes'] as Map<String, int>,
-    );
+        progress['bestTimes'] as Map<String, int>;
+    final Map<String, int> starsMap = progress['stars'] as Map<String, int>;
 
-    final Map<String, int> starsMap =
-        Map<String, int>.from(
-      progress['stars'] as Map<String, int>,
-    );
-
-    final int totalStars =
-        starsMap.values.fold<int>(
+    final int totalStars = starsMap.values.fold<int>(
       0,
       (int sum, int value) => sum + value,
     );
 
-    final int totalTime =
-        bestTimes.values.fold<int>(
+    final int totalTime = bestTimes.values.fold<int>(
       0,
       (int sum, int value) => sum + value,
     );
 
-    final int averageTime = completed.isEmpty
+    // Average over levels that actually have a recorded time.
+    final int averageTime = bestTimes.isEmpty
         ? 0
-        : (totalTime / completed.length).round();
+        : (totalTime / bestTimes.length).round();
 
-    final double completionPercent =
-        GameConfig.totalLevels == 0
-            ? 0.0
-            : (completed.length / GameConfig.totalLevels)
-                .clamp(0.0, 1.0);
+    final double completionPercent = GameConfig.totalLevels == 0
+        ? 0.0
+        : (completed.length / GameConfig.totalLevels)
+              .clamp(0.0, 1.0)
+              .toDouble();
 
     return <String, dynamic>{
       'totalLevels': completed.length,
@@ -878,20 +736,14 @@ class ProgressService {
 
   /// Returns the highest currently unlocked world.
   Future<int> getHighestUnlockedWorld() async {
-    final Map<String, dynamic> progress =
-        await loadProgress();
-
-    return progress['highestUnlockedWorld'] as int;
+    return _progress['highestUnlockedWorld'] as int;
   }
 
   /// Returns the next progression level.
   ///
   /// Once the entire game is completed, this returns [GameConfig.totalLevels].
   Future<int> getNextUnlockedLevel() async {
-    final Map<String, dynamic> progress =
-        await loadProgress();
-
-    return progress['currentLevel'] as int;
+    return _progress['currentLevel'] as int;
   }
 
   // ==========================================================================
@@ -899,31 +751,20 @@ class ProgressService {
   // ==========================================================================
 
   /// Returns total stars for each requested world.
-  Future<Map<int, int>> getAllWorldStars(
-    int requestedTotalWorlds,
-  ) async {
-    if (requestedTotalWorlds <
-        GameConfig.minimumWorld) {
+  Future<Map<int, int>> getAllWorldStars(int requestedTotalWorlds) async {
+    if (requestedTotalWorlds < GameConfig.minimumWorld) {
       throw ArgumentError.value(
         requestedTotalWorlds,
         'requestedTotalWorlds',
-        'Total worlds must be at least '
-            '${GameConfig.minimumWorld}.',
+        'Total worlds must be at least ${GameConfig.minimumWorld}.',
       );
     }
 
-    final Map<String, dynamic> progress =
-        await loadProgress();
+    final Map<String, int> starsMap = _progress['stars'] as Map<String, int>;
 
-    final Map<String, int> starsMap =
-        Map<String, int>.from(
-      progress['stars'] as Map<String, int>,
-    );
-
-    final int safeTotalWorlds =
-        requestedTotalWorlds > GameConfig.totalWorlds
-            ? GameConfig.totalWorlds
-            : requestedTotalWorlds;
+    final int safeTotalWorlds = requestedTotalWorlds > GameConfig.totalWorlds
+        ? GameConfig.totalWorlds
+        : requestedTotalWorlds;
 
     final Map<int, int> result = <int, int>{};
 
@@ -932,58 +773,29 @@ class ProgressService {
       world <= safeTotalWorlds;
       world++
     ) {
-      final int start =
-          GameConfig.getFirstLevelForWorld(world);
-
-      final int end =
-          GameConfig.getLastLevelForWorld(world);
-
-      int totalStars = 0;
-
-      for (
-        int globalLevel = start;
-        globalLevel <= end;
-        globalLevel++
-      ) {
-        totalStars +=
-            starsMap[globalLevel.toString()] ?? 0;
-      }
-
-      result[world] = totalStars;
+      result[world] = _sumStarsForWorld(starsMap, world);
     }
 
     return result;
   }
 
   /// Returns total stars earned in a specific world.
-  Future<int> getStarsForWorld(
-    int world,
-  ) async {
+  Future<int> getStarsForWorld(int world) async {
     _validateWorld(world);
 
-    final Map<String, dynamic> progress =
-        await loadProgress();
+    final Map<String, int> starsMap = _progress['stars'] as Map<String, int>;
 
-    final Map<String, int> starsMap =
-        Map<String, int>.from(
-      progress['stars'] as Map<String, int>,
-    );
+    return _sumStarsForWorld(starsMap, world);
+  }
 
-    final int start =
-        GameConfig.getFirstLevelForWorld(world);
-
-    final int end =
-        GameConfig.getLastLevelForWorld(world);
+  int _sumStarsForWorld(Map<String, int> starsMap, int world) {
+    final int start = GameConfig.getFirstLevelForWorld(world);
+    final int end = GameConfig.getLastLevelForWorld(world);
 
     int totalStars = 0;
 
-    for (
-      int globalLevel = start;
-      globalLevel <= end;
-      globalLevel++
-    ) {
-      totalStars +=
-          starsMap[globalLevel.toString()] ?? 0;
+    for (int globalLevel = start; globalLevel <= end; globalLevel++) {
+      totalStars += starsMap[globalLevel.toString()] ?? 0;
     }
 
     return totalStars;
@@ -994,63 +806,41 @@ class ProgressService {
   // ==========================================================================
 
   /// Returns true when [globalLevel] has been completed.
-  Future<bool> isLevelCompleted(
-    int globalLevel,
-  ) async {
+  Future<bool> isLevelCompleted(int globalLevel) async {
     _validateGlobalLevel(globalLevel);
 
-    final Map<String, dynamic> progress =
-        await loadProgress();
-
-    final List<int> completed =
-        progress['completedLevels'] as List<int>;
+    final List<int> completed = _progress['completedLevels'] as List<int>;
 
     return completed.contains(globalLevel);
   }
 
   /// Returns true when [globalLevel] can currently be played.
   ///
-  /// Completed levels are always replayable.
-  ///
-  /// New levels unlock sequentially.
-  Future<bool> isLevelUnlocked(
-    int globalLevel,
-  ) async {
+  /// Completed levels are always replayable. New levels unlock sequentially.
+  Future<bool> isLevelUnlocked(int globalLevel) async {
     _validateGlobalLevel(globalLevel);
 
-    final Map<String, dynamic> progress =
-        await loadProgress();
+    final Map<String, dynamic> progress = _progress;
 
-    final int currentLevel =
-        progress['currentLevel'] as int;
+    final int currentLevel = progress['currentLevel'] as int;
+    final List<int> completed = progress['completedLevels'] as List<int>;
 
-    final List<int> completed =
-        progress['completedLevels'] as List<int>;
-
-    return completed.contains(globalLevel) ||
-        globalLevel == currentLevel;
+    return completed.contains(globalLevel) || globalLevel == currentLevel;
   }
 
-  /// Returns true when [globalLevel] is being replayed.
+  /// Returns true when [globalLevel] has already been completed, i.e. playing
+  /// it again is a replay.
   ///
-  /// A completed level is considered a replay whenever it is not the current
-  /// progression level.
-  Future<bool> isReplayingLevel(
-    int globalLevel,
-  ) async {
+  /// Call this BEFORE [completeLevel] (for example when a level starts) and
+  /// carry the result forward. After [completeLevel] runs, every finished
+  /// level is "completed", so the answer can no longer distinguish a first
+  /// completion from a replay.
+  Future<bool> isReplayingLevel(int globalLevel) async {
     _validateGlobalLevel(globalLevel);
 
-    final Map<String, dynamic> progress =
-        await loadProgress();
+    final List<int> completed = _progress['completedLevels'] as List<int>;
 
-    final int currentLevel =
-        progress['currentLevel'] as int;
-
-    final List<int> completed =
-        progress['completedLevels'] as List<int>;
-
-    return completed.contains(globalLevel) &&
-        globalLevel != currentLevel;
+    return completed.contains(globalLevel);
   }
 
   // ==========================================================================
@@ -1060,39 +850,29 @@ class ProgressService {
   /// Resets gameplay progress.
   ///
   /// User identity and account information are not affected.
-  Future<void> resetProgress() {
+  Future<void> resetProgress() async {
     _ensureInitialized();
 
-    return _runMutation(() async {
+    await _runMutation<void>(() async {
       final SharedPreferences? prefs = _prefs;
 
       if (prefs == null) {
-        throw StateError(
-          'ProgressService storage is unavailable.',
-        );
+        throw StateError('ProgressService storage is unavailable.');
       }
 
       try {
-        final bool removed =
-            await prefs.remove(_progressKey);
+        final bool removed = await prefs.remove(_progressKey);
 
-        if (!removed &&
-            prefs.containsKey(_progressKey)) {
-          throw StateError(
-            'SharedPreferences could not reset progress.',
-          );
+        if (!removed && prefs.containsKey(_progressKey)) {
+          throw StateError('SharedPreferences could not reset progress.');
         }
 
         _cachedProgress = _defaultProgress();
 
-        if (!_progressUpdateController.isClosed) {
-          _progressUpdateController.add(null);
-        }
+        _notifyProgressUpdated();
       } catch (error, stackTrace) {
         Error.throwWithStackTrace(
-          StateError(
-            'Could not reset progress: $error',
-          ),
+          StateError('Could not reset progress: $error'),
           stackTrace,
         );
       }
@@ -1100,7 +880,7 @@ class ProgressService {
   }
 
   // ==========================================================================
-  // CACHE / DEBUG HELPERS
+  // STATE
   // ==========================================================================
 
   /// Returns true when the service has been initialized.
@@ -1109,16 +889,28 @@ class ProgressService {
   /// Returns true when the service has been disposed.
   bool get isDisposed => _isDisposed;
 
+  /// Read-only view of the in-memory progress.
+  ///
+  /// INTERNAL: never mutate the returned map and never expose it publicly.
+  /// Public APIs must return copies via [_deepCopyProgress].
+  Map<String, dynamic> get _progress {
+    _ensureInitialized();
+
+    final Map<String, dynamic>? cached = _cachedProgress;
+
+    if (cached == null) {
+      throw StateError('ProgressService cache is unavailable.');
+    }
+
+    return cached;
+  }
+
   // ==========================================================================
   // VALIDATION
   // ==========================================================================
 
-  void _validateGlobalLevel(
-    int globalLevel,
-  ) {
-    if (!GameConfig.isValidGlobalLevel(
-      globalLevel,
-    )) {
+  void _validateGlobalLevel(int globalLevel) {
+    if (!GameConfig.isValidGlobalLevel(globalLevel)) {
       throw ArgumentError.value(
         globalLevel,
         'globalLevel',
@@ -1129,9 +921,7 @@ class ProgressService {
     }
   }
 
-  void _validateWorld(
-    int world,
-  ) {
+  void _validateWorld(int world) {
     if (!GameConfig.isValidWorld(world)) {
       throw ArgumentError.value(
         world,
@@ -1143,9 +933,7 @@ class ProgressService {
     }
   }
 
-  void _validateLocalLevel(
-    int level,
-  ) {
+  void _validateLocalLevel(int level) {
     if (!GameConfig.isValidLocalLevel(level)) {
       throw ArgumentError.value(
         level,
@@ -1161,15 +949,14 @@ class ProgressService {
   // PARSING
   // ==========================================================================
 
-  int? _parseIntOrNull(
-    dynamic value,
-  ) {
+  int? _parseIntOrNull(dynamic value) {
     if (value is int) {
       return value;
     }
 
     if (value is num) {
-      return value.toInt();
+      // NaN / Infinity would throw in toInt().
+      return value.isFinite ? value.toInt() : null;
     }
 
     if (value is String) {
@@ -1183,26 +970,18 @@ class ProgressService {
   // DEFENSIVE COPY
   // ==========================================================================
 
-  Map<String, dynamic> _deepCopyProgress(
-    Map<String, dynamic> progress,
-  ) {
+  Map<String, dynamic> _deepCopyProgress(Map<String, dynamic> progress) {
     return <String, dynamic>{
-      'version':
-          progress['version'] as int? ??
-          _progressVersion,
-      'currentLevel':
-          progress['currentLevel'] as int,
+      'version': progress['version'] as int? ?? _progressVersion,
+      'currentLevel': progress['currentLevel'] as int,
       'completedLevels': List<int>.from(
         progress['completedLevels'] as List<int>,
       ),
       'bestTimes': Map<String, int>.from(
         progress['bestTimes'] as Map<String, int>,
       ),
-      'stars': Map<String, int>.from(
-        progress['stars'] as Map<String, int>,
-      ),
-      'highestUnlockedWorld':
-          progress['highestUnlockedWorld'] as int,
+      'stars': Map<String, int>.from(progress['stars'] as Map<String, int>),
+      'highestUnlockedWorld': progress['highestUnlockedWorld'] as int,
     };
   }
 

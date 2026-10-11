@@ -11,6 +11,8 @@ import '../models/sudoku_board.dart';
 /// - Generate a new Sudoku puzzle.
 /// - Validate the generated puzzle.
 /// - Solve a copy to obtain the solution.
+/// - Verify the solution is a valid, complete Sudoku that agrees with the
+///   puzzle's clues.
 /// - Build the fixed-cell map.
 /// - Return an independent [SudokuBoard].
 ///
@@ -22,6 +24,11 @@ import '../models/sudoku_board.dart';
 ///
 /// The service does not persist game progress. That responsibility belongs to
 /// ProgressService.
+///
+/// Performance note:
+/// Generation and solving are CPU-bound and run synchronously. For high empty
+/// cell counts this can take noticeable time, so avoid calling [newGame]
+/// repeatedly inside a single frame (for example once per level in a loop).
 ///
 /// Example:
 ///
@@ -43,13 +50,16 @@ class GameService {
   /// a new playable puzzle.
   static const int minEmptyCells = 1;
 
-  /// Maximum number of empty cells allowed for a standard 9x9 Sudoku.
+  /// Maximum number of empty cells accepted by this service.
   ///
-  /// The exact practical difficulty depends on the generator implementation,
-  /// but this prevents obviously invalid input from reaching the generator.
+  /// This only rejects obviously invalid input. Note that a 9x9 Sudoku needs
+  /// at least 17 clues to have a unique solution (at most 64 empty cells), so
+  /// values above 64 can only produce puzzles with multiple solutions. The
+  /// campaign uses far fewer.
   static const int maxEmptyCells = 80;
 
   static const int _gridSize = 9;
+  static const int _boxSize = 3;
 
   // ==========================================================================
   // DEPENDENCIES
@@ -77,6 +87,9 @@ class GameService {
   /// - [SudokuBoard.solution] -> solved puzzle
   /// - [SudokuBoard.fixed]   -> cells that cannot be edited
   ///
+  /// Every grid in the returned board is an independent list structure, so
+  /// mutating one never affects the others.
+  ///
   /// Throws [ArgumentError] when [emptyCells] is outside the supported range.
   ///
   /// Throws [StateError] when the Sudoku engine produces an invalid or
@@ -88,9 +101,10 @@ class GameService {
     // GENERATE PUZZLE
     // ------------------------------------------------------------------------
 
-    final puzzle = _generator.generatePuzzle(emptyCells);
+    final List<List<int>> puzzle = _generator.generatePuzzle(emptyCells);
 
     _validateGrid(puzzle, name: 'Generated puzzle');
+    _validateHasEmptyCell(puzzle);
 
     // ------------------------------------------------------------------------
     // SOLVE PUZZLE
@@ -99,12 +113,13 @@ class GameService {
     // Never pass the original puzzle to the solver.
     //
     // The solver mutates the supplied grid, so solving a clone protects the
-    // original puzzle used by the player.
+    // original puzzle used by the player. This clone is exclusively owned by
+    // this method, so it is returned directly as the solution (no extra copy).
     //
 
-    final solution = _cloneGrid(puzzle);
+    final List<List<int>> solution = _cloneGrid(puzzle);
 
-    final solved = SudokuSolver.solve(solution);
+    final bool solved = SudokuSolver.solve(solution);
 
     if (!solved) {
       throw StateError(
@@ -113,26 +128,23 @@ class GameService {
     }
 
     _validateSolvedGrid(solution);
-
-    // ------------------------------------------------------------------------
-    // FIXED CELLS
-    // ------------------------------------------------------------------------
-
-    final fixed = _buildFixedGrid(puzzle);
+    _validateSolutionMatchesPuzzle(puzzle, solution);
 
     // ------------------------------------------------------------------------
     // RETURN INDEPENDENT BOARD
     // ------------------------------------------------------------------------
     //
-    // Each mutable grid gets its own list structure. This prevents accidental
-    // mutations from leaking between board, puzzle, and solution.
+    // - board / puzzle : separate clones, because the generator may keep a
+    //   reference to the list it returned.
+    // - solution       : exclusively owned (see above).
+    // - fixed          : freshly built here, so it needs no further copy.
     //
 
     return SudokuBoard(
       board: _cloneGrid(puzzle),
       puzzle: _cloneGrid(puzzle),
-      solution: _cloneGrid(solution),
-      fixed: _cloneBoolGrid(fixed),
+      solution: solution,
+      fixed: _buildFixedGrid(puzzle),
     );
   }
 
@@ -166,7 +178,7 @@ class GameService {
       }
 
       for (int col = 0; col < _gridSize; col++) {
-        final value = grid[row][col];
+        final int value = grid[row][col];
 
         if (value < 0 || value > _gridSize) {
           throw StateError(
@@ -178,18 +190,36 @@ class GameService {
     }
   }
 
+  /// A puzzle with no empty cell is already solved and not playable.
+  void _validateHasEmptyCell(List<List<int>> puzzle) {
+    for (final List<int> row in puzzle) {
+      if (row.contains(0)) {
+        return;
+      }
+    }
+
+    throw StateError(
+      'Sudoku engine error: generated puzzle has no empty cells.',
+    );
+  }
+
   /// Ensures the solver returned a complete valid Sudoku grid.
   ///
-  /// This deliberately validates the structural result here rather than
-  /// assuming the solver implementation is always correct.
+  /// This deliberately validates the result here rather than assuming the
+  /// solver implementation is always correct.
+  ///
+  /// Uses one pass with bitmasks (one int per row, column and box) instead
+  /// of allocating a Set for each of the 27 units.
   void _validateSolvedGrid(List<List<int>> solution) {
     _validateGrid(solution, name: 'Generated solution');
 
-    for (int row = 0; row < _gridSize; row++) {
-      final values = <int>{};
+    final List<int> rows = List<int>.filled(_gridSize, 0);
+    final List<int> cols = List<int>.filled(_gridSize, 0);
+    final List<int> boxes = List<int>.filled(_gridSize, 0);
 
+    for (int row = 0; row < _gridSize; row++) {
       for (int col = 0; col < _gridSize; col++) {
-        final value = solution[row][col];
+        final int value = solution[row][col];
 
         if (value < 1 || value > _gridSize) {
           throw StateError(
@@ -198,44 +228,53 @@ class GameService {
           );
         }
 
-        values.add(value);
-      }
+        final int bit = 1 << value;
+        final int boxRow = (row ~/ _boxSize) * _boxSize;
+        final int boxCol = (col ~/ _boxSize) * _boxSize;
+        final int boxIndex = (boxRow ~/ _boxSize) * _boxSize + (col ~/ _boxSize);
 
-      if (values.length != _gridSize) {
-        throw StateError(
-          'Generated solution contains duplicate values in row $row.',
-        );
-      }
-    }
-
-    for (int col = 0; col < _gridSize; col++) {
-      final values = <int>{};
-
-      for (int row = 0; row < _gridSize; row++) {
-        values.add(solution[row][col]);
-      }
-
-      if (values.length != _gridSize) {
-        throw StateError(
-          'Generated solution contains duplicate values in column $col.',
-        );
-      }
-    }
-
-    for (int boxRow = 0; boxRow < _gridSize; boxRow += 3) {
-      for (int boxCol = 0; boxCol < _gridSize; boxCol += 3) {
-        final values = <int>{};
-
-        for (int row = boxRow; row < boxRow + 3; row++) {
-          for (int col = boxCol; col < boxCol + 3; col++) {
-            values.add(solution[row][col]);
-          }
+        if ((rows[row] & bit) != 0) {
+          throw StateError(
+            'Generated solution contains duplicate values in row $row.',
+          );
         }
 
-        if (values.length != _gridSize) {
+        if ((cols[col] & bit) != 0) {
+          throw StateError(
+            'Generated solution contains duplicate values in column $col.',
+          );
+        }
+
+        if ((boxes[boxIndex] & bit) != 0) {
           throw StateError(
             'Generated solution contains duplicate values in '
             'the $boxRow,$boxCol 3x3 box.',
+          );
+        }
+
+        rows[row] |= bit;
+        cols[col] |= bit;
+        boxes[boxIndex] |= bit;
+      }
+    }
+  }
+
+  /// Ensures every given clue is preserved by the solution.
+  ///
+  /// Guards against a solver that overwrites clues, which would otherwise
+  /// produce a puzzle whose "solution" contradicts what the player sees.
+  void _validateSolutionMatchesPuzzle(
+    List<List<int>> puzzle,
+    List<List<int>> solution,
+  ) {
+    for (int row = 0; row < _gridSize; row++) {
+      for (int col = 0; col < _gridSize; col++) {
+        final int clue = puzzle[row][col];
+
+        if (clue != 0 && clue != solution[row][col]) {
+          throw StateError(
+            'Sudoku engine error: solution does not match puzzle clue at '
+            'row $row, column $col.',
           );
         }
       }
@@ -249,7 +288,12 @@ class GameService {
   List<List<bool>> _buildFixedGrid(List<List<int>> puzzle) {
     return List<List<bool>>.generate(
       _gridSize,
-      (row) => List<bool>.generate(_gridSize, (col) => puzzle[row][col] != 0),
+      (int row) => List<bool>.generate(
+        _gridSize,
+        (int col) => puzzle[row][col] != 0,
+        growable: false,
+      ),
+      growable: false,
     );
   }
 
@@ -259,11 +303,8 @@ class GameService {
 
   /// Creates a deep copy of a Sudoku integer grid.
   List<List<int>> _cloneGrid(List<List<int>> source) {
-    return source.map((row) => List<int>.from(row)).toList(growable: false);
-  }
-
-  /// Creates a deep copy of a Sudoku boolean grid.
-  List<List<bool>> _cloneBoolGrid(List<List<bool>> source) {
-    return source.map((row) => List<bool>.from(row)).toList(growable: false);
+    return source
+        .map((List<int> row) => List<int>.from(row, growable: false))
+        .toList(growable: false);
   }
 }

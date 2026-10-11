@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../config/game_config.dart';
@@ -19,7 +21,8 @@ import '../services/progress_service.dart';
 /// - Replace obsolete navigation history when returning to a map.
 ///
 /// Architecture:
-/// - GameScreen is responsible for saving progress.
+/// - GameScreen is responsible for saving progress BEFORE opening this screen.
+///   Replay detection below relies on that ordering.
 /// - ProgressService is the source of truth for progression.
 /// - WinScreen is responsible for presentation and navigation.
 ///
@@ -28,10 +31,10 @@ import '../services/progress_service.dart';
 /// - World and local level numbers are derived from [levelNumber].
 ///
 /// Navigation architecture:
-/// - Normal next-level navigation replaces WinScreen with GameScreen.
-/// - Replay replaces WinScreen with GameScreen.
+/// - Next level / replay replace WinScreen with GameScreen.
 /// - Returning to a level map creates a fresh LevelMapScreen and removes
 ///   previous gameplay/map routes from the navigation stack.
+/// - The system back button behaves like "Back to Level Map".
 /// - Completing the last level of a world does not show "Next Level".
 /// - Completing a world presents a dedicated world-complete state.
 /// - Completing the final world presents an all-worlds-complete state.
@@ -66,39 +69,65 @@ class WinScreen extends StatefulWidget {
 
 class _WinScreenState extends State<WinScreen>
     with SingleTickerProviderStateMixin {
+  // --------------------------------------------------------------------------
+  // CONSTANTS
+  // --------------------------------------------------------------------------
+
+  static const int _maxStars = 3;
+
+  // Animation timeline (milliseconds). Matches the original sequencing:
+  // trophy pop -> short pause -> stars appear one by one.
+  static const int _trophyMs = 700;
+  static const int _pauseMs = 250;
+  static const int _starDelayMs = 300;
+  static const int _starMs = 400;
+
+  static const Color _backgroundColor = Color(0xFFE8F5E9); // green.shade50
+
   final ProgressService _progressService = ProgressService();
 
-  late final AnimationController _trophyController;
-  late final Animation<double> _trophyScale;
+  // --------------------------------------------------------------------------
+  // ANIMATION
+  // --------------------------------------------------------------------------
 
-  final List<bool> _visibleStars = <bool>[false, false, false];
+  /// One controller drives the entire celebration (trophy + stars), so no
+  /// per-star setState() / whole-screen rebuilds are needed.
+  late final AnimationController _celebrationController;
+  late final Animation<double> _trophyScale;
+  late final List<Animation<double>> _starScales;
+
+  bool _animationStarted = false;
+
+  // --------------------------------------------------------------------------
+  // DERIVED, IMMUTABLE DATA (computed once)
+  // --------------------------------------------------------------------------
+
+  late final int _world;
+  late final int _levelInWorld;
+  late final bool _isLastLevel;
+
+  // --------------------------------------------------------------------------
+  // STATE
+  // --------------------------------------------------------------------------
 
   bool _isLoading = true;
   bool _isReplay = false;
-  bool _isLastLevel = false;
 
-  /// Prevents multiple navigation operations caused by rapid taps.
+  /// Prevents multiple navigation operations caused by rapid taps and
+  /// disables the action buttons while navigating.
   bool _isNavigating = false;
 
-  /// ==========================================================================
-  /// DERIVED DATA
-  /// ==========================================================================
+  // ==========================================================================
+  // DERIVED DATA
+  // ==========================================================================
 
   /// Number of stars that can safely be displayed.
-  int get _safeStars => widget.stars.clamp(0, 3);
+  int get _safeStars => widget.stars.clamp(0, _maxStars);
 
   /// Whether the supplied level number is valid.
   bool get _isValidLevel =>
       widget.levelNumber >= GameConfig.minimumLevel &&
       widget.levelNumber <= GameConfig.totalLevels;
-
-  /// World containing the current global level.
-  int get _world =>
-      _progressService.getWorldFromGlobal(widget.levelNumber);
-
-  /// Local level number inside the current world.
-  int get _levelInWorld =>
-      _progressService.getLevelInWorld(widget.levelNumber);
 
   /// Whether this completion represents a genuine world completion.
   ///
@@ -108,49 +137,128 @@ class _WinScreenState extends State<WinScreen>
   /// Whether the completed world is the final configured world.
   bool get _isFinalWorld => _world == GameConfig.totalWorlds;
 
-  /// ==========================================================================
-  /// LIFECYCLE
-  /// ==========================================================================
+  String get _title {
+    if (!_isWorldComplete) {
+      return 'Level Complete!';
+    }
+
+    return _isFinalWorld ? 'All Worlds Complete!' : 'World Complete!';
+  }
+
+  String get _subtitle =>
+      _isWorldComplete ? 'World $_world completed!' : 'Level ${widget.levelNumber}';
+
+  String get _worldCompleteMessage => _isFinalWorld
+      ? 'Congratulations! You have completed all available worlds.'
+      : 'Congratulations! World $_world is complete '
+          'and World ${_world + 1} is now unlocked.';
+
+  // ==========================================================================
+  // LIFECYCLE
+  // ==========================================================================
 
   @override
   void initState() {
     super.initState();
 
-    _trophyController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
+    _setUpLevelData();
+    _setUpAnimations();
 
-    _trophyScale = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(
-      CurvedAnimation(
-        parent: _trophyController,
-        curve: Curves.elasticOut,
-      ),
-    );
-
-    _initialize();
+    if (_isValidLevel) {
+      unawaited(_loadReplayState());
+    } else {
+      _isLoading = false;
+    }
   }
 
-  /// ==========================================================================
-  /// INITIALIZATION
-  /// ==========================================================================
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
 
-  Future<void> _initialize() async {
-    if (!_isValidLevel) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isLoading = false;
-      });
-
+    // MediaQuery is not available in initState, so the animation starts here
+    // (once). Respect the system "reduce motion" accessibility setting.
+    if (_animationStarted) {
       return;
     }
 
+    _animationStarted = true;
+
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _celebrationController.value = 1.0;
+    } else {
+      unawaited(_celebrationController.forward());
+    }
+  }
+
+  @override
+  void dispose() {
+    _celebrationController.dispose();
+    super.dispose();
+  }
+
+  // ==========================================================================
+  // SETUP
+  // ==========================================================================
+
+  /// Derives world / local level once instead of calling the service on
+  /// every build. Everything here is synchronous, so the layout (title,
+  /// buttons) is correct from the very first frame.
+  void _setUpLevelData() {
+    if (_isValidLevel) {
+      _world = _progressService.getWorldFromGlobal(widget.levelNumber);
+      _levelInWorld = _progressService.getLevelInWorld(widget.levelNumber);
+      _isLastLevel = _levelInWorld == GameConfig.levelsPerWorld;
+    } else {
+      _world = 0;
+      _levelInWorld = 0;
+      _isLastLevel = false;
+    }
+  }
+
+  void _setUpAnimations() {
+    final int stars = _safeStars;
+
+    final int starsBeginMs = _trophyMs + _pauseMs + _starDelayMs;
+
+    final int totalMs = stars == 0
+        ? _trophyMs
+        : starsBeginMs + (stars - 1) * _starDelayMs + _starMs;
+
+    _celebrationController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: totalMs),
+    );
+
+    Animation<double> segment(int beginMs, int endMs) {
+      return CurveTween(
+        curve: Interval(
+          beginMs / totalMs,
+          endMs / totalMs,
+          curve: Curves.elasticOut,
+        ),
+      ).animate(_celebrationController);
+    }
+
+    _trophyScale = segment(0, _trophyMs);
+
+    _starScales = List<Animation<double>>.generate(stars, (int index) {
+      final int begin = starsBeginMs + index * _starDelayMs;
+      return segment(begin, begin + _starMs);
+    });
+  }
+
+  // ==========================================================================
+  // PROGRESS
+  // ==========================================================================
+
+  /// Determines whether this completion is a replay.
+  ///
+  /// A completed level is a replay when a later level was already unlocked
+  /// before this completion.
+  ///
+  /// Example: current level = 3, next unlocked level = 6
+  /// 3 + 1 < 6 => replay.
+  Future<void> _loadReplayState() async {
     try {
       final int nextUnlockedLevel =
           await _progressService.getNextUnlockedLevel();
@@ -159,182 +267,107 @@ class _WinScreenState extends State<WinScreen>
         return;
       }
 
-      /// A completed level is a replay when a later level was already
-      /// unlocked before this completion.
-      ///
-      /// Example:
-      ///
-      /// Current level = 3
-      /// Next unlocked level = 6
-      ///
-      /// 3 + 1 < 6 => true
-      final bool isReplay =
-          widget.levelNumber + 1 < nextUnlockedLevel;
-
-      final bool isLastLevelOfWorld =
-          _levelInWorld == GameConfig.levelsPerWorld;
-
       setState(() {
-        _isReplay = isReplay;
-        _isLastLevel = isLastLevelOfWorld;
+        _isReplay = widget.levelNumber + 1 < nextUnlockedLevel;
         _isLoading = false;
       });
-
-      /// Run presentation animation independently of navigation state.
-      await _startAnimation();
     } catch (error, stackTrace) {
-      debugPrint(
-        'WinScreen: failed to initialize: $error',
-      );
-
-      debugPrintStack(
-        stackTrace: stackTrace,
-      );
+      debugPrint('WinScreen: failed to load progress: $error');
+      debugPrintStack(stackTrace: stackTrace);
 
       if (!mounted) {
         return;
       }
 
+      // Fall back to "not a replay" so the player is never stuck here.
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  /// ==========================================================================
-  /// ANIMATIONS
-  /// ==========================================================================
+  // ==========================================================================
+  // NAVIGATION
+  // ==========================================================================
 
-  Future<void> _startAnimation() async {
-    if (!mounted) {
+  /// Runs [action] at most once and disables the buttons while navigating.
+  void _navigate(VoidCallback action) {
+    if (!mounted || _isNavigating) {
       return;
     }
 
-    await _trophyController.forward();
+    setState(() {
+      _isNavigating = true;
+    });
 
-    if (!mounted) {
-      return;
-    }
-
-    await Future<void>.delayed(
-      const Duration(milliseconds: 250),
-    );
-
-    for (int index = 0; index < _safeStars; index++) {
-      await Future<void>.delayed(
-        const Duration(milliseconds: 300),
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _visibleStars[index] = true;
-      });
-    }
+    action();
   }
-
-  /// ==========================================================================
-  /// NAVIGATION
-  /// ==========================================================================
 
   /// Opens the next global level.
   ///
-  /// The next level is identified only by its global level number.
-  ///
-  /// This is only available when:
-  /// - the level is valid,
-  /// - this is not a replay,
-  /// - this is not the last level of the world.
+  /// Only available when the level is valid, this is not a replay and this
+  /// is not the last level of the world.
   void _openNextLevel() {
-    if (!mounted ||
-        _isLoading ||
-        _isReplay ||
-        _isLastLevel ||
-        _isNavigating) {
+    if (_isLoading || _isReplay || _isLastLevel || !_isValidLevel) {
       return;
     }
 
     final int nextLevel = widget.levelNumber + 1;
 
     if (nextLevel > GameConfig.totalLevels) {
-      _showMessage(
-        'You have completed all available levels!',
-      );
-
+      _showMessage('You have completed all available levels!');
       return;
     }
 
-    _isNavigating = true;
-
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.game,
-      arguments: GameArguments(
-        levelNumber: nextLevel,
-      ),
-    );
+    _navigate(() {
+      unawaited(
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.game,
+          arguments: GameArguments(levelNumber: nextLevel),
+        ),
+      );
+    });
   }
 
   /// Replays the current level.
-  ///
-  /// Only the global level number is required.
   void _replayLevel() {
-    if (!mounted ||
-        !_isValidLevel ||
-        _isNavigating) {
+    if (!_isValidLevel) {
       return;
     }
 
-    _isNavigating = true;
-
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.game,
-      arguments: GameArguments(
-        levelNumber: widget.levelNumber,
-      ),
-    );
+    _navigate(() {
+      unawaited(
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.game,
+          arguments: GameArguments(levelNumber: widget.levelNumber),
+        ),
+      );
+    });
   }
 
-  /// Replaces the entire current navigation stack with a fresh level map.
+  /// Replaces the entire navigation stack with a fresh level map.
   ///
-  /// This is intentionally different from pushReplacementNamed().
-  ///
-  /// Example:
-  ///
-  /// Home
-  ///   -> Level Map
-  ///   -> Game
-  ///   -> Win
-  ///
-  /// becomes:
-  ///
-  /// Level Map
-  ///
-  /// The previous map, GameScreen, WinScreen, and any intermediate routes
-  /// are removed from the navigation stack.
+  /// Example: Home -> Level Map -> Game -> Win  becomes  Level Map.
   void _replaceWithLevelMap(int world) {
-    if (!mounted ||
-        _isNavigating ||
-        !_isValidWorldNumber(world)) {
+    if (!_isValidWorldNumber(world)) {
       return;
     }
 
-    _isNavigating = true;
-
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      AppRoutes.levels,
-      (Route<dynamic> route) => false,
-      arguments: world,
-    );
+    _navigate(() {
+      unawaited(
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.levels,
+          (Route<dynamic> route) => false,
+          arguments: world,
+        ),
+      );
+    });
   }
 
   /// Returns to the current world's level map.
-  ///
-  /// A fresh LevelMapScreen is created and all previous routes are removed.
   void _backToLevelMap() {
     if (!_isValidLevel) {
       return;
@@ -345,38 +378,41 @@ class _WinScreenState extends State<WinScreen>
 
   /// Continues after completing a world.
   ///
-  /// For a normal world:
-  ///   World 1 complete -> World 2 map
-  ///
-  /// For the final world:
-  ///   Final world complete -> current world map
+  /// Normal world:  World N complete -> World N + 1 map.
+  /// Final world:   Final world complete -> current world map.
   void _continueFromWorldComplete() {
-    if (!mounted ||
-        !_isWorldComplete ||
-        _isNavigating) {
+    if (!_isWorldComplete) {
       return;
     }
 
-    if (_isFinalWorld) {
-      _replaceWithLevelMap(_world);
-      return;
-    }
-
-    _replaceWithLevelMap(_world + 1);
+    _replaceWithLevelMap(_isFinalWorld ? _world : _world + 1);
   }
 
-  /// ==========================================================================
-  /// VALIDATION
-  /// ==========================================================================
+  /// Fallback for an invalid level: clear the stack and go home.
+  void _goHome() {
+    _navigate(() {
+      unawaited(
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.home,
+          (Route<dynamic> route) => false,
+        ),
+      );
+    });
+  }
+
+  // ==========================================================================
+  // VALIDATION
+  // ==========================================================================
 
   bool _isValidWorldNumber(int world) {
     return world >= GameConfig.minimumWorld &&
         world <= GameConfig.totalWorlds;
   }
 
-  /// ==========================================================================
-  /// USER FEEDBACK
-  /// ==========================================================================
+  // ==========================================================================
+  // USER FEEDBACK
+  // ==========================================================================
 
   void _showMessage(String message) {
     if (!mounted) {
@@ -393,360 +429,334 @@ class _WinScreenState extends State<WinScreen>
       );
   }
 
-  /// ==========================================================================
-  /// STAR WIDGET
-  /// ==========================================================================
+  // ==========================================================================
+  // BUILD HELPERS
+  // ==========================================================================
 
-  Widget _buildStar(int index) {
-    return AnimatedScale(
-      scale: _visibleStars[index] ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.elasticOut,
-      child: const Icon(
-        Icons.star,
-        size: 46,
-        color: Colors.amber,
-      ),
-    );
-  }
-
-  /// ==========================================================================
-  /// RESPONSIVE BUTTON WIDTH
-  /// ==========================================================================
-
-  double _buttonWidth(BuildContext context) {
-    final double availableWidth =
-        MediaQuery.sizeOf(context).width - 48;
-
-    return availableWidth.clamp(0.0, 320.0);
-  }
-
-  /// ==========================================================================
-  /// PRIMARY ACTION
-  /// ==========================================================================
-
-  Widget _buildNextLevelButton() {
-    return SizedBox(
-      width: _buttonWidth(context),
-      child: ElevatedButton(
-        onPressed: _isNavigating ? null : _openNextLevel,
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
-          padding: const EdgeInsets.symmetric(
-            vertical: 12,
-            horizontal: 20,
-          ),
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: const Text(
-          'Next Level',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+  Widget _buildStars() {
+    return Semantics(
+      container: true,
+      label: '$_safeStars out of $_maxStars stars',
+      child: ExcludeSemantics(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            for (int index = 0; index < _maxStars; index++) ...<Widget>[
+              if (index > 0) const SizedBox(width: 8),
+              _StarSlot(
+                scale: index < _starScales.length ? _starScales[index] : null,
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 
-  /// ==========================================================================
-  /// REPLAY BUTTON
-  /// ==========================================================================
+  List<Widget> _buildActions(ThemeData theme) {
+    if (_isLoading) {
+      return const <Widget>[
+        Padding(
+          padding: EdgeInsets.all(8),
+          child: CircularProgressIndicator(),
+        ),
+      ];
+    }
 
-  Widget _buildReplayButton() {
-    return SizedBox(
-      width: _buttonWidth(context),
-      child: OutlinedButton(
-        onPressed: _isNavigating ? null : _replayLevel,
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
-          padding: const EdgeInsets.symmetric(
-            vertical: 12,
-            horizontal: 20,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    if (!_isValidLevel) {
+      return <Widget>[
+        Text(
+          'This level is not available.',
+          style: theme.textTheme.bodyLarge,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        TextButton(
+          onPressed: _isNavigating ? null : _goHome,
+          child: const Text('Go Home'),
+        ),
+      ];
+    }
+
+    final VoidCallback? onReplay = _isNavigating ? null : _replayLevel;
+
+    if (_isWorldComplete) {
+      return <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            _worldCompleteMessage,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+            textAlign: TextAlign.center,
           ),
         ),
-        child: const Text(
-          'Replay Level',
+        const SizedBox(height: 24),
+        _ActionButton.primary(
+          label: _isFinalWorld ? 'Back to Level Map' : 'Continue',
+          onPressed: _isNavigating ? null : _continueFromWorldComplete,
+        ),
+        const SizedBox(height: 12),
+        _ActionButton.secondary(
+          label: 'Replay Level',
+          onPressed: onReplay,
+        ),
+      ];
+    }
+
+    return <Widget>[
+      if (_isReplay) ...<Widget>[
+        Text(
+          'Replaying Level',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: Colors.blueGrey,
+            fontStyle: FontStyle.italic,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 14),
+      ] else ...<Widget>[
+        _ActionButton.primary(
+          label: 'Next Level',
+          onPressed: _isNavigating ? null : _openNextLevel,
+        ),
+        const SizedBox(height: 16),
+      ],
+      _ActionButton.secondary(
+        label: 'Replay Level',
+        onPressed: onReplay,
+      ),
+      const SizedBox(height: 12),
+      TextButton(
+        onPressed: _isNavigating ? null : _backToLevelMap,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          minimumSize: const Size(0, 40),
+        ),
+        child: Text(
+          'Back to Level Map',
           style: TextStyle(
-            fontSize: 15,
+            color: theme.colorScheme.primary,
             fontWeight: FontWeight.w500,
           ),
         ),
       ),
-    );
+    ];
   }
 
-  /// ==========================================================================
-  /// WORLD COMPLETE BUTTON
-  /// ==========================================================================
-
-  Widget _buildWorldCompleteButton() {
-    final String label =
-        _isFinalWorld ? 'Back to Level Map' : 'Continue';
-
-    return SizedBox(
-      width: _buttonWidth(context),
-      child: ElevatedButton(
-        onPressed: _isNavigating
-            ? null
-            : _continueFromWorldComplete,
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
-          padding: const EdgeInsets.symmetric(
-            vertical: 12,
-            horizontal: 20,
-          ),
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// ==========================================================================
-  /// LEVEL MAP BUTTON
-  /// ==========================================================================
-
-  Widget _buildLevelMapButton(ThemeData theme) {
-    return TextButton(
-      onPressed: _isNavigating ? null : _backToLevelMap,
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 8,
-        ),
-        minimumSize: const Size(0, 40),
-      ),
-      child: Text(
-        'Back to Level Map',
-        style: TextStyle(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  /// ==========================================================================
-  /// BUILD
-  /// ==========================================================================
+  // ==========================================================================
+  // BUILD
+  // ==========================================================================
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: Colors.green.shade50,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 20,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                /// ============================================================
-                /// TROPHY
-                /// ============================================================
-                ScaleTransition(
-                  scale: _trophyScale,
-                  child: const Icon(
-                    Icons.emoji_events,
-                    size: 112,
-                    color: Colors.orange,
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                /// ============================================================
-                /// TITLE
-                /// ============================================================
-                Text(
-                  _isWorldComplete
-                      ? (_isFinalWorld
-                          ? 'All Worlds Complete!'
-                          : 'World Complete!')
-                      : 'Level Complete!',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 6),
-
-                /// ============================================================
-                /// LEVEL / WORLD SUBTITLE
-                /// ============================================================
-                if (_isWorldComplete)
-                  Text(
-                    _isFinalWorld
-                        ? 'World $_world completed!'
-                        : 'World $_world completed!',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+    return PopScope(
+      // For a valid level, the system back gesture goes to a fresh level map
+      // (same as the on-screen button) instead of popping to a stale route.
+      canPop: !_isValidLevel,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (!didPop) {
+          _backToLevelMap();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _backgroundColor,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 20,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  // Trophy
+                  ExcludeSemantics(
+                    child: ScaleTransition(
+                      scale: _trophyScale,
+                      child: const Icon(
+                        Icons.emoji_events,
+                        size: 112,
+                        color: Colors.orange,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  )
-                else
-                  Text(
-                    'Level ${widget.levelNumber}',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
                   ),
 
-                const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
-                /// ============================================================
-                /// STARS
-                /// ============================================================
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildStar(0),
-                    const SizedBox(width: 8),
-                    _buildStar(1),
-                    const SizedBox(width: 8),
-                    _buildStar(2),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                /// ============================================================
-                /// TIME
-                /// ============================================================
-                Text(
-                  'Time: ${widget.time}',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 28),
-
-                /// ============================================================
-                /// ACTIONS
-                /// ============================================================
-                if (_isLoading)
-                  const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(),
-                  )
-                else if (!_isValidLevel)
-                  Text(
-                    'This level is not available.',
-                    style: theme.textTheme.bodyLarge,
-                    textAlign: TextAlign.center,
-                  )
-                else if (_isWorldComplete) ...[
-                  /// ========================================================
-                  /// WORLD COMPLETE MESSAGE
-                  /// ========================================================
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                    ),
+                  // Title
+                  Semantics(
+                    header: true,
                     child: Text(
-                      _isFinalWorld
-                          ? 'Congratulations! You have completed '
-                              'all available worlds.'
-                          : 'Congratulations! World $_world is complete '
-                              'and World ${_world + 1} is now unlocked.',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
+                      _title,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
                       textAlign: TextAlign.center,
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 6),
 
-                  /// ========================================================
-                  /// WORLD COMPLETE PRIMARY ACTION
-                  /// ========================================================
-                  _buildWorldCompleteButton(),
-
-                  const SizedBox(height: 12),
-
-                  /// ========================================================
-                  /// REPLAY
-                  /// ========================================================
-                  _buildReplayButton(),
-                ] else ...[
-                  /// ========================================================
-                  /// NEXT LEVEL
-                  /// ========================================================
-                  if (!_isReplay) ...[
-                    _buildNextLevelButton(),
-                    const SizedBox(height: 16),
-                  ],
-
-                  /// ========================================================
-                  /// REPLAY INFORMATION
-                  /// ========================================================
-                  if (_isReplay) ...[
-                    Text(
-                      'Replaying Level',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.blueGrey,
-                        fontStyle: FontStyle.italic,
-                      ),
-                      textAlign: TextAlign.center,
+                  // Level / world subtitle
+                  Text(
+                    _subtitle,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    const SizedBox(height: 14),
-                  ],
+                    textAlign: TextAlign.center,
+                  ),
 
-                  /// ========================================================
-                  /// REPLAY
-                  /// ========================================================
-                  _buildReplayButton(),
+                  const SizedBox(height: 20),
 
-                  const SizedBox(height: 12),
+                  // Stars
+                  _buildStars(),
 
-                  /// ========================================================
-                  /// LEVEL MAP
-                  /// ========================================================
-                  _buildLevelMapButton(theme),
+                  const SizedBox(height: 20),
+
+                  // Time
+                  Text(
+                    'Time: ${widget.time}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // Actions
+                  ..._buildActions(theme),
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  /// ==========================================================================
-  /// DISPOSE
-  /// ==========================================================================
+/// ============================================================================
+/// STAR SLOT
+/// ----------------------------------------------------------------------------
+/// An outlined placeholder star. When [scale] is provided (the star was
+/// earned) a filled star pops in on top of it; otherwise only the outline
+/// remains so the player can see how many stars were possible.
+/// ============================================================================
+
+class _StarSlot extends StatelessWidget {
+  final Animation<double>? scale;
+
+  const _StarSlot({required this.scale});
+
+  static const double _size = 46;
 
   @override
-  void dispose() {
-    _trophyController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    final Animation<double>? animation = scale;
+
+    return Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        Icon(
+          Icons.star_border,
+          size: _size,
+          color: Colors.amber.shade200,
+        ),
+        if (animation != null)
+          ScaleTransition(
+            scale: animation,
+            child: const Icon(
+              Icons.star,
+              size: _size,
+              color: Colors.amber,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// ============================================================================
+/// ACTION BUTTON
+/// ----------------------------------------------------------------------------
+/// Shared full-width button (max 320 logical pixels) used for the primary and
+/// secondary actions. Replaces the per-build MediaQuery width calculation and
+/// the duplicated button styling.
+/// ============================================================================
+
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onPressed;
+  final bool _isPrimary;
+
+  const _ActionButton.primary({
+    required this.label,
+    required this.onPressed,
+  }) : _isPrimary = true;
+
+  const _ActionButton.secondary({
+    required this.label,
+    required this.onPressed,
+  }) : _isPrimary = false;
+
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    vertical: 12,
+    horizontal: 20,
+  );
+
+  static final RoundedRectangleBorder _shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(12),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget button = _isPrimary
+        ? ElevatedButton(
+            onPressed: onPressed,
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              padding: _padding,
+              elevation: 1,
+              shape: _shape,
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          )
+        : OutlinedButton(
+            onPressed: onPressed,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              padding: _padding,
+              shape: _shape,
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          );
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: SizedBox(
+        width: double.infinity,
+        child: button,
+      ),
+    );
   }
 }

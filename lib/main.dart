@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,25 +22,85 @@ import 'services/user_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  _configureFlutterErrorHandling();
+  _configureErrorHandling();
 
-  final StartupResult startupResult = await _initializeApplication();
+  final StartupResult startupResult = await initializeApplication();
 
   runApp(
     SudokuApp(
-      startupResult: startupResult,
+      initialStartupResult: startupResult,
     ),
   );
 }
 
 /// ============================================================================
-/// STARTUP RESULT
+/// ERROR REPORTING
 /// ============================================================================
 
-/// Represents the result of application startup.
+/// Single place to forward errors to a crash-reporting backend.
 ///
-/// The application is still rendered when initialization fails so the user
-/// receives a controlled error screen instead of a blank/crashed application.
+/// Wire Firebase Crashlytics, Sentry, etc. into [report] when adopted.
+/// Every error path in this file funnels through here.
+abstract final class AppErrorReporter {
+  static void report(
+    Object error,
+    StackTrace? stackTrace, {
+    String? context,
+    bool fatal = false,
+  }) {
+    debugPrint(
+      '[${fatal ? 'FATAL' : 'ERROR'}]'
+      '${context != null ? ' $context:' : ''} $error',
+    );
+
+    if (stackTrace != null) {
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
+    // TODO(production): forward to crash reporting, e.g.
+    // FirebaseCrashlytics.instance.recordError(error, stackTrace, fatal: fatal);
+  }
+}
+
+void _configureErrorHandling() {
+  // Errors thrown inside the Flutter framework (build/layout/paint).
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+
+    AppErrorReporter.report(
+      details.exception,
+      details.stack,
+      context: 'Flutter framework',
+    );
+  };
+
+  // Uncaught asynchronous / platform errors (futures, timers, isolates,
+  // platform channels). FlutterError.onError does NOT see these.
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    AppErrorReporter.report(
+      error,
+      stack,
+      context: 'Uncaught async error',
+      fatal: true,
+    );
+
+    // Returning true marks the error as handled.
+    return true;
+  };
+}
+
+/// ============================================================================
+/// STARTUP
+/// ============================================================================
+
+/// Upper bound for startup. Prevents an indefinite hang on the native splash
+/// if a service (e.g. storage) never completes.
+const Duration _startupTimeout = Duration(seconds: 15);
+
+/// Result of application startup.
+///
+/// The app is still rendered when initialization fails so the user sees a
+/// controlled error screen with a retry option instead of a blank screen.
 @immutable
 class StartupResult {
   final Object? error;
@@ -49,42 +111,35 @@ class StartupResult {
         stackTrace = null;
 
   const StartupResult.failure({
-    required this.error,
+    required Object this.error,
     required this.stackTrace,
   });
 
   bool get isSuccessful => error == null;
 }
 
-/// ============================================================================
-/// APPLICATION INITIALIZATION
-/// ============================================================================
-
-Future<StartupResult> _initializeApplication() async {
+/// Initializes system UI and all mandatory services.
+///
+/// NOTE: this may be called again from the "Try again" button. It assumes
+/// `ProgressService.init()` and `UserService.init()` are idempotent (safe to
+/// call twice). If they are not, guard them with an `_initialized` flag.
+Future<StartupResult> initializeApplication() async {
   try {
     await _configureSystemUi();
 
-    // ------------------------------------------------------------------------
-    // SERVICE INITIALIZATION ORDER
-    // ------------------------------------------------------------------------
-    //
-    // ProgressService must be initialized before any progression-dependent
-    // screen/service accesses persisted progression.
-    //
-    // UserService is initialized afterwards because it represents user/account
-    // data.
-    //
-    // Keep this ordering explicit.
-    //
-
-    await ProgressService().init();
-    await UserService().init();
+    // Order matters:
+    //  1. ProgressService - persisted progression must exist before any
+    //     progression-dependent screen/service reads it.
+    //  2. UserService - account/user data.
+    await _initializeServices().timeout(_startupTimeout);
 
     return const StartupResult.success();
   } catch (error, stackTrace) {
-    _logStartupFailure(
+    AppErrorReporter.report(
       error,
       stackTrace,
+      context: 'Application startup',
+      fatal: true,
     );
 
     return StartupResult.failure(
@@ -94,53 +149,10 @@ Future<StartupResult> _initializeApplication() async {
   }
 }
 
-/// ============================================================================
-/// FLUTTER ERROR HANDLING
-/// ============================================================================
-
-void _configureFlutterErrorHandling() {
-  FlutterError.onError = (FlutterErrorDetails details) {
-    FlutterError.presentError(details);
-
-    debugPrint(
-      'Flutter framework error: ${details.exception}',
-    );
-
-    if (details.stack != null) {
-      debugPrintStack(
-        stackTrace: details.stack!,
-      );
-    }
-
-    // ------------------------------------------------------------------------
-    // PRODUCTION CRASH REPORTING
-    // ------------------------------------------------------------------------
-    //
-    // Integrate Firebase Crashlytics, Sentry, or another crash-reporting
-    // service here when the project adopts one.
-    //
-  };
+Future<void> _initializeServices() async {
+  await ProgressService().init();
+  await UserService().init();
 }
-
-/// Handles errors occurring outside the Flutter framework error pipeline.
-void _logStartupFailure(
-  Object error,
-  StackTrace stackTrace,
-) {
-  debugPrint(
-    'Application startup failed: $error',
-  );
-
-  debugPrintStack(
-    stackTrace: stackTrace,
-  );
-
-  // Forward startup failures to the production crash-reporting service here.
-}
-
-/// ============================================================================
-/// SYSTEM UI CONFIGURATION
-/// ============================================================================
 
 Future<void> _configureSystemUi() async {
   await SystemChrome.setPreferredOrientations(
@@ -152,8 +164,8 @@ Future<void> _configureSystemUi() async {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
+      statusBarIconBrightness: Brightness.dark, // Android
+      statusBarBrightness: Brightness.light, // iOS
     ),
   );
 }
@@ -162,40 +174,70 @@ Future<void> _configureSystemUi() async {
 /// ROOT APPLICATION
 /// ============================================================================
 
-class SudokuApp extends StatelessWidget {
-  final StartupResult startupResult;
+class SudokuApp extends StatefulWidget {
+  final StartupResult initialStartupResult;
 
   const SudokuApp({
-    required this.startupResult,
+    required this.initialStartupResult,
     super.key,
   });
 
-  /// Global navigator key.
-  ///
-  /// Useful for application-level navigation where a BuildContext is not
-  /// available.
+  /// Global navigator key for navigation without a BuildContext.
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
+
+  @override
+  State<SudokuApp> createState() => _SudokuAppState();
+}
+
+class _SudokuAppState extends State<SudokuApp> {
+  late StartupResult _startupResult = widget.initialStartupResult;
+
+  /// Re-runs startup. On success, replaces the error screen with home.
+  Future<void> _retryStartup() async {
+    final StartupResult result = await initializeApplication();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _startupResult = result;
+    });
+
+    if (result.isSuccessful) {
+      SudokuApp.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        AppRoutes.home,
+        (Route<dynamic> route) => false,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Sudoku',
       debugShowCheckedModeBanner: false,
-
-      // ----------------------------------------------------------------------
-      // THEME
-      // ----------------------------------------------------------------------
-
       theme: AppTheme.lightTheme,
+      navigatorKey: SudokuApp.navigatorKey,
 
-      // ----------------------------------------------------------------------
-      // NAVIGATION
-      // ----------------------------------------------------------------------
+      // Keep the board and controls usable with very large/small system font
+      // sizes while still honouring accessibility settings within a range.
+      builder: (BuildContext context, Widget? child) {
+        final MediaQueryData mediaQuery = MediaQuery.of(context);
 
-      navigatorKey: navigatorKey,
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.3,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
 
-      initialRoute: startupResult.isSuccessful
+      initialRoute: _startupResult.isSuccessful
           ? AppRoutes.home
           : AppRoutes.startupError,
 
@@ -205,71 +247,53 @@ class SudokuApp extends StatelessWidget {
         AppRoutes.settings: (_) => const SettingsScreen(),
         AppRoutes.statistics: (_) => const StatisticsScreen(),
         AppRoutes.startupError: (_) => StartupErrorScreen(
-              error: startupResult.error,
+              error: _startupResult.error,
+              onRetry: _retryStartup,
             ),
       },
 
-      onGenerateRoute: _onGenerateRoute,
-
-      onUnknownRoute: (RouteSettings settings) {
-        return _errorRoute(
-          'Unknown route:\n${settings.name ?? 'null'}',
-        );
-      },
+      onGenerateRoute: _AppRouter.onGenerateRoute,
+      onUnknownRoute: _AppRouter.onUnknownRoute,
     );
   }
+}
 
-  /// ========================================================================
-  /// ROUTE GENERATOR
-  /// ========================================================================
+/// ============================================================================
+/// ROUTER
+/// ============================================================================
 
-  static Route<dynamic> _onGenerateRoute(
-    RouteSettings settings,
-  ) {
-    try {
-      switch (settings.name) {
-        case AppRoutes.game:
-          return _buildGameRoute(settings);
+abstract final class _AppRouter {
+  static Route<dynamic> onGenerateRoute(RouteSettings settings) {
+    switch (settings.name) {
+      case AppRoutes.game:
+        return _buildGameRoute(settings);
 
-        case AppRoutes.levels:
-          return _buildLevelMapRoute(settings);
+      case AppRoutes.levels:
+        return _buildLevelMapRoute(settings);
 
-        default:
-          return _errorRoute(
-            'Route "${settings.name ?? 'null'}" is not implemented.',
-          );
-      }
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Navigation error for "${settings.name}": $error',
-      );
-
-      debugPrintStack(
-        stackTrace: stackTrace,
-      );
-
-      return _errorRoute(
-        'An error occurred while opening this screen.',
-      );
+      default:
+        return _errorRoute(
+          'Route "${settings.name ?? 'null'}" is not implemented.',
+          settings: settings,
+        );
     }
   }
 
-  /// ========================================================================
-  /// GAME ROUTE
-  /// ========================================================================
+  static Route<dynamic> onUnknownRoute(RouteSettings settings) {
+    return _errorRoute(
+      'Unknown route:\n${settings.name ?? 'null'}',
+      settings: settings,
+    );
+  }
 
   /// Builds the GameScreen route using the global level number.
-  ///
-  /// No world or local-level argument is accepted here.
-  static Route<dynamic> _buildGameRoute(
-    RouteSettings settings,
-  ) {
+  static Route<dynamic> _buildGameRoute(RouteSettings settings) {
     final Object? arguments = settings.arguments;
 
     if (arguments is! GameArguments) {
       return _errorRoute(
-        'Invalid game navigation arguments.\n\n'
-        'Expected GameArguments.',
+        'Invalid game navigation arguments.\n\nExpected GameArguments.',
+        settings: settings,
       );
     }
 
@@ -278,33 +302,24 @@ class SudokuApp extends StatelessWidget {
     if (!_isValidLevelNumber(levelNumber)) {
       return _errorRoute(
         'Invalid level number: $levelNumber.',
+        settings: settings,
       );
     }
 
     return MaterialPageRoute<void>(
       settings: settings,
-      builder: (_) => GameScreen(
-        levelNumber: levelNumber,
-      ),
+      builder: (_) => GameScreen(levelNumber: levelNumber),
     );
   }
 
-  /// ========================================================================
-  /// LEVEL MAP ROUTE
-  /// ========================================================================
-
   /// Builds the level map for a specific world.
-  ///
-  /// A world is intentionally used here because this screen represents a
-  /// collection of levels.
-  static Route<dynamic> _buildLevelMapRoute(
-    RouteSettings settings,
-  ) {
+  static Route<dynamic> _buildLevelMapRoute(RouteSettings settings) {
     final Object? arguments = settings.arguments;
 
     if (arguments is! int) {
       return _errorRoute(
         'Invalid world navigation arguments.',
+        settings: settings,
       );
     }
 
@@ -313,20 +328,15 @@ class SudokuApp extends StatelessWidget {
     if (!_isValidWorldNumber(world)) {
       return _errorRoute(
         'Invalid world number: $world.',
+        settings: settings,
       );
     }
 
     return MaterialPageRoute<void>(
       settings: settings,
-      builder: (_) => LevelMapScreen(
-        world: world,
-      ),
+      builder: (_) => LevelMapScreen(world: world),
     );
   }
-
-  /// ========================================================================
-  /// VALIDATION
-  /// ========================================================================
 
   static bool _isValidLevelNumber(int levelNumber) {
     return levelNumber >= GameConfig.minimumLevel &&
@@ -338,99 +348,41 @@ class SudokuApp extends StatelessWidget {
         world <= GameConfig.totalWorlds;
   }
 
-  /// ========================================================================
-  /// ERROR ROUTE
-  /// ========================================================================
-
-  /// Displays a controlled error screen when navigation fails.
   static Route<dynamic> _errorRoute(
-    String message,
-  ) {
+    String message, {
+    RouteSettings? settings,
+  }) {
+    AppErrorReporter.report(
+      message,
+      null,
+      context: 'Navigation',
+    );
+
     return MaterialPageRoute<void>(
-      builder: (BuildContext context) {
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text(
-              'Something went wrong',
-            ),
-          ),
-          body: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Icon(
-                    Icons.error_outline,
-                    color: Theme.of(context).colorScheme.error,
-                    size: 64,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Unable to open this screen',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      navigatorKey.currentState
-                          ?.pushNamedAndRemoveUntil(
-                        AppRoutes.home,
-                        (Route<dynamic> route) => false,
-                      );
-                    },
-                    icon: const Icon(Icons.home),
-                    label: const Text(
-                      'Return Home',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      settings: settings,
+      builder: (BuildContext context) => _NavigationErrorScreen(
+        message: message,
+      ),
     );
   }
 }
 
 /// ============================================================================
-/// STARTUP ERROR SCREEN
+/// NAVIGATION ERROR SCREEN
 /// ============================================================================
 
-/// Controlled screen displayed when mandatory application initialization
-/// fails.
-///
-/// This prevents the application from presenting a partially initialized
-/// game state.
-class StartupErrorScreen extends StatelessWidget {
-  final Object? error;
+class _NavigationErrorScreen extends StatelessWidget {
+  final String message;
 
-  const StartupErrorScreen({
-    required this.error,
-    super.key,
-  });
+  const _NavigationErrorScreen({required this.message});
 
   @override
   Widget build(BuildContext context) {
-    final bool isDebugBuild =
-        !const bool.fromEnvironment('dart.vm.product');
+    final ThemeData theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sudoku'),
+        title: const Text('Something went wrong'),
       ),
       body: SafeArea(
         child: Center(
@@ -440,60 +392,164 @@ class StartupErrorScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(
-                  Icons.warning_amber_rounded,
-                  size: 72,
-                  color: Theme.of(context).colorScheme.error,
+                  Icons.error_outline,
+                  color: theme.colorScheme.error,
+                  size: 64,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 const Text(
-                  'Unable to start Sudoku',
+                  'Unable to open this screen',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'The application could not initialize its required '
-                  'services. Please restart the application and try again.',
+                // Raw route/argument details are only useful to developers.
+                Text(
+                  kDebugMode
+                      ? message
+                      : 'Please return to the home screen and try again.',
                   textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14),
                 ),
-
-                // ----------------------------------------------------------------
-                // DEVELOPMENT DIAGNOSTIC
-                // ----------------------------------------------------------------
-
-                if (isDebugBuild && error != null) ...[
-                  const SizedBox(height: 24),
-                  ExpansionTile(
-                    title: const Text(
-                      'Technical details',
-                    ),
-                    children: <Widget>[
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: SelectableText(
-                          error.toString(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-
                 const SizedBox(height: 28),
-
                 ElevatedButton.icon(
                   onPressed: () {
-                    // A full process restart is platform-specific and should
-                    // not be attempted from Flutter application code.
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      AppRoutes.home,
+                      (Route<dynamic> route) => false,
+                    );
                   },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text(
-                    'Restart App',
-                  ),
+                  icon: const Icon(Icons.home),
+                  label: const Text('Return Home'),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ============================================================================
+/// STARTUP ERROR SCREEN
+/// ============================================================================
+
+/// Shown when mandatory initialization fails, so the app never presents a
+/// partially initialized game state.
+class StartupErrorScreen extends StatefulWidget {
+  final Object? error;
+
+  /// Re-runs startup. The screen shows a progress state while it runs.
+  final Future<void> Function() onRetry;
+
+  const StartupErrorScreen({
+    required this.error,
+    required this.onRetry,
+    super.key,
+  });
+
+  @override
+  State<StartupErrorScreen> createState() => _StartupErrorScreenState();
+}
+
+class _StartupErrorScreenState extends State<StartupErrorScreen> {
+  bool _isRetrying = false;
+
+  Future<void> _handleRetry() async {
+    if (_isRetrying) {
+      return;
+    }
+
+    setState(() => _isRetrying = true);
+
+    try {
+      await widget.onRetry();
+    } finally {
+      // The screen is replaced on success; only reset if still on screen.
+      if (mounted) {
+        setState(() => _isRetrying = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return PopScope(
+      // Nothing valid to go back to from a failed startup.
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Sudoku'),
+          automaticallyImplyLeading: false,
+        ),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 72,
+                    color: theme.colorScheme.error,
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Unable to start Sudoku',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'The application could not load its required data. '
+                    'Please try again. If the problem continues, restart '
+                    'the app or free up some device storage.',
+                    textAlign: TextAlign.center,
+                  ),
+
+                  // Development-only diagnostics.
+                  if (kDebugMode && widget.error != null) ...<Widget>[
+                    const SizedBox(height: 24),
+                    ExpansionTile(
+                      title: const Text('Technical details'),
+                      children: <Widget>[
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: SelectableText(
+                            widget.error.toString(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 28),
+
+                  ElevatedButton.icon(
+                    onPressed: _isRetrying ? null : _handleRetry,
+                    icon: _isRetrying
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    label: Text(
+                      _isRetrying ? 'Trying again…' : 'Try again',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
