@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/game_config.dart';
-import '../models/level.dart';
 import '../core/navigation.dart';
+import '../models/level.dart';
 import '../services/level_service.dart';
 import '../services/progress_service.dart';
 import '../widgets/enhanced_level_tile.dart';
@@ -20,6 +20,13 @@ import '../widgets/enhanced_level_tile.dart';
 /// - ProgressService uses the same global level ID.
 /// - GameScreen receives the same global level ID.
 /// - World is only used to determine which levels are displayed.
+///
+/// Navigation:
+/// - Opening a level pushes GameScreen.
+/// - Returning from GameScreen refreshes this map.
+/// - Completion-to-map navigation is handled by WinScreen.
+/// - WinScreen may replace the entire navigation stack with a fresh
+///   LevelMapScreen, so this screen must always load its state from services.
 /// ============================================================================
 
 class LevelMapScreen extends StatefulWidget {
@@ -48,6 +55,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
 
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _isOpeningLevel = false;
 
   static const int _itemsPerRow = 5;
   static const double _itemHeight = 80.0;
@@ -59,7 +67,10 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
 
     _loadData();
 
-    /// Refresh automatically when progress changes elsewhere in the app.
+    /// Refresh automatically when progression changes elsewhere.
+    ///
+    /// This keeps the map synchronized if another screen or service updates
+    /// ProgressService while this screen is alive.
     _progressSubscription =
         _progressService.onProgressUpdate.listen((_) {
       if (!mounted) {
@@ -77,37 +88,32 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   Future<void> _loadData({
     bool refreshOnly = false,
   }) async {
-    if (_isRefreshing) {
+    if (!mounted || _isRefreshing) {
       return;
     }
 
     if (!_isValidWorldNumber(widget.world)) {
-      if (mounted) {
-        setState(() {
-          _levels = const <Level>[];
-          _isLoading = false;
-          _isRefreshing = false;
-        });
-      }
+      setState(() {
+        _levels = const <Level>[];
+        _isLoading = false;
+        _isRefreshing = false;
+      });
 
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _isRefreshing = true;
+    setState(() {
+      _isRefreshing = true;
 
-        if (!refreshOnly) {
-          _isLoading = true;
-        }
-      });
-    }
+      if (!refreshOnly) {
+        _isLoading = true;
+      }
+    });
 
     try {
-      /// Load both pieces of information concurrently.
+      /// Load levels and progression independently.
       ///
-      /// IMPORTANT:
-      /// Level.levelNumber remains the canonical/global level ID.
+      /// Both operations use the same canonical global level numbering.
       final Future<List<Level>> levelsFuture =
           _levelService.getLevelsByWorld(widget.world);
 
@@ -121,18 +127,33 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         return;
       }
 
+      /// Defensive validation:
+      /// LevelService should already return only levels belonging to this
+      /// world, but filtering here prevents malformed repository data from
+      /// leaking into the UI.
+      final List<Level> validLevels = loadedLevels
+          .where(
+            (Level level) => _isLevelInWorld(
+              level.levelNumber,
+              widget.world,
+            ),
+          )
+          .toList(growable: false);
+
       setState(() {
-        _levels = loadedLevels;
+        _levels = validLevels;
         _currentLevel = currentLevel;
         _isLoading = false;
         _isRefreshing = false;
       });
 
-      /// Scroll after the grid has been laid out.
+      /// Wait until the grid has been laid out before attempting to scroll.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _scrollToCurrentLevel();
+        if (!mounted) {
+          return;
         }
+
+        _scrollToCurrentLevel();
       });
     } catch (error, stackTrace) {
       debugPrint(
@@ -152,13 +173,8 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         _isRefreshing = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not load levels. Please try again.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
+      _showMessage(
+        'Could not load levels. Please try again.',
       );
     }
   }
@@ -170,6 +186,23 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   bool _isValidWorldNumber(int world) {
     return world >= GameConfig.minimumWorld &&
         world <= GameConfig.totalWorlds;
+  }
+
+  bool _isLevelInWorld(
+    int levelNumber,
+    int world,
+  ) {
+    if (levelNumber < GameConfig.minimumLevel ||
+        levelNumber > GameConfig.totalLevels) {
+      return false;
+    }
+
+    final int calculatedWorld =
+        ((levelNumber - GameConfig.minimumLevel) ~/
+                GameConfig.levelsPerWorld) +
+            GameConfig.minimumWorld;
+
+    return calculatedWorld == world;
   }
 
   /// ========================================================================
@@ -203,7 +236,9 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ========================================================================
 
   void _scrollToCurrentLevel() {
-    if (!_scrollController.hasClients || _levels.isEmpty) {
+    if (!mounted ||
+        !_scrollController.hasClients ||
+        _levels.isEmpty) {
       return;
     }
 
@@ -211,7 +246,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       (Level level) => level.levelNumber == _currentLevel,
     );
 
-    /// Current level is not part of this world.
+    /// The current level may belong to another world.
     if (index == -1) {
       return;
     }
@@ -221,8 +256,16 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     final double maxExtent =
         _scrollController.position.maxScrollExtent;
 
-    final double targetOffset = (row * (_itemHeight + _gridSpacing))
-        .clamp(0.0, maxExtent);
+    final double targetOffset =
+        (row * (_itemHeight + _gridSpacing))
+            .clamp(0.0, maxExtent);
+
+    if ((targetOffset -
+                _scrollController.position.pixels)
+            .abs() <
+        1.0) {
+      return;
+    }
 
     _scrollController.animateTo(
       targetOffset,
@@ -236,7 +279,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
   /// ========================================================================
 
   Future<void> _openLevel(Level level) async {
-    if (!mounted) {
+    if (!mounted || _isOpeningLevel) {
       return;
     }
 
@@ -244,17 +287,24 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
 
     /// Do not allow future/locked levels.
     if (levelNumber > _currentLevel) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Complete previous levels first!',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
+      _showMessage(
+        'Complete previous levels first!',
       );
 
       return;
     }
+
+    /// Defensive validation before navigation.
+    if (levelNumber < GameConfig.minimumLevel ||
+        levelNumber > GameConfig.totalLevels) {
+      _showMessage(
+        'This level is not available.',
+      );
+
+      return;
+    }
+
+    _isOpeningLevel = true;
 
     try {
       await Navigator.pushNamed(
@@ -265,11 +315,15 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         ),
       );
 
-      /// Progress may have changed after returning from GameScreen.
       if (!mounted) {
         return;
       }
 
+      /// Progress may have changed after returning from GameScreen.
+      ///
+      /// This is intentionally retained even though ProgressService also
+      /// emits progress updates. It gives this screen an explicit refresh
+      /// after the navigation operation completes.
       await _loadData(refreshOnly: true);
     } catch (error, stackTrace) {
       debugPrint(
@@ -284,15 +338,36 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not open this level.',
-          ),
+      _showMessage(
+        'Could not open this level.',
+      );
+    } finally {
+      if (mounted) {
+        _isOpeningLevel = false;
+      }
+    }
+  }
+
+  /// ========================================================================
+  /// FEEDBACK
+  /// ========================================================================
+
+  void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+
+    final ScaffoldMessengerState messenger =
+        ScaffoldMessenger.of(context);
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
           behavior: SnackBarBehavior.floating,
         ),
       );
-    }
   }
 
   /// ========================================================================
@@ -350,6 +425,11 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                   levelNumber: level.levelNumber,
                   state: _getTileState(level),
                   stars: level.stars,
+
+                  /// EnhancedLevelTile requires a non-nullable callback.
+                  ///
+                  /// Duplicate navigation is prevented inside _openLevel()
+                  /// by the _isOpeningLevel guard.
                   onTap: () => _openLevel(level),
                 );
               },

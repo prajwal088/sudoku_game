@@ -14,7 +14,9 @@ import '../services/progress_service.dart';
 /// - Animate trophy and earned stars.
 /// - Allow the player to continue to the next level.
 /// - Allow replaying the completed level.
+/// - Handle world completion.
 /// - Return to the appropriate level map.
+/// - Replace obsolete navigation history when returning to a map.
 ///
 /// Architecture:
 /// - GameScreen is responsible for saving progress.
@@ -24,6 +26,15 @@ import '../services/progress_service.dart';
 /// Level architecture:
 /// - A level has ONE identity: [levelNumber].
 /// - World and local level numbers are derived from [levelNumber].
+///
+/// Navigation architecture:
+/// - Normal next-level navigation replaces WinScreen with GameScreen.
+/// - Replay replaces WinScreen with GameScreen.
+/// - Returning to a level map creates a fresh LevelMapScreen and removes
+///   previous gameplay/map routes from the navigation stack.
+/// - Completing the last level of a world does not show "Next Level".
+/// - Completing a world presents a dedicated world-complete state.
+/// - Completing the final world presents an all-worlds-complete state.
 ///
 /// IMPORTANT:
 /// - Do not pass world separately when opening a GameScreen.
@@ -65,7 +76,9 @@ class _WinScreenState extends State<WinScreen>
   bool _isLoading = true;
   bool _isReplay = false;
   bool _isLastLevel = false;
-  bool _worldCompleteDialogShown = false;
+
+  /// Prevents multiple navigation operations caused by rapid taps.
+  bool _isNavigating = false;
 
   /// ==========================================================================
   /// DERIVED DATA
@@ -86,6 +99,14 @@ class _WinScreenState extends State<WinScreen>
   /// Local level number inside the current world.
   int get _levelInWorld =>
       _progressService.getLevelInWorld(widget.levelNumber);
+
+  /// Whether this completion represents a genuine world completion.
+  ///
+  /// A replay of the final level must not trigger world-complete behavior.
+  bool get _isWorldComplete => _isLastLevel && !_isReplay;
+
+  /// Whether the completed world is the final configured world.
+  bool get _isFinalWorld => _world == GameConfig.totalWorlds;
 
   /// ==========================================================================
   /// LIFECYCLE
@@ -119,11 +140,14 @@ class _WinScreenState extends State<WinScreen>
 
   Future<void> _initialize() async {
     if (!_isValidLevel) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      if (!mounted) {
+        return;
       }
+
+      setState(() {
+        _isLoading = false;
+      });
+
       return;
     }
 
@@ -131,7 +155,9 @@ class _WinScreenState extends State<WinScreen>
       final int nextUnlockedLevel =
           await _progressService.getNextUnlockedLevel();
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       /// A completed level is a replay when a later level was already
       /// unlocked before this completion.
@@ -154,37 +180,20 @@ class _WinScreenState extends State<WinScreen>
         _isLoading = false;
       });
 
-      // Run presentation animation independently of initialization state.
+      /// Run presentation animation independently of navigation state.
       await _startAnimation();
-
-      if (!mounted) return;
-
-      /// Show the world-complete dialog only when:
-      /// - this is the final level of the world,
-      /// - this is not a replay,
-      /// - another world exists.
-      if (_isLastLevel && !_isReplay) {
-        final int nextWorld = _world + 1;
-
-        if (nextWorld <= GameConfig.totalWorlds) {
-          await Future<void>.delayed(
-            const Duration(milliseconds: 500),
-          );
-
-          if (!mounted) return;
-
-          await _showWorldCompleteDialog();
-        }
-      }
     } catch (error, stackTrace) {
       debugPrint(
         'WinScreen: failed to initialize: $error',
       );
+
       debugPrintStack(
         stackTrace: stackTrace,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isLoading = false;
@@ -197,11 +206,15 @@ class _WinScreenState extends State<WinScreen>
   /// ==========================================================================
 
   Future<void> _startAnimation() async {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     await _trophyController.forward();
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     await Future<void>.delayed(
       const Duration(milliseconds: 250),
@@ -212,57 +225,14 @@ class _WinScreenState extends State<WinScreen>
         const Duration(milliseconds: 300),
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _visibleStars[index] = true;
       });
     }
-  }
-
-  /// ==========================================================================
-  /// WORLD COMPLETE
-  /// ==========================================================================
-
-  Future<void> _showWorldCompleteDialog() async {
-    if (!mounted || _worldCompleteDialogShown) {
-      return;
-    }
-
-    final int nextWorld = _world + 1;
-
-    /// The final configured world has no subsequent world to unlock.
-    if (nextWorld > GameConfig.totalWorlds) {
-      return;
-    }
-
-    _worldCompleteDialogShown = true;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('🎉 World Complete!'),
-          content: Text(
-            'World $_world is complete!\n\n'
-            'World $nextWorld is now unlocked.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-
-                if (!mounted) return;
-
-                _openWorld(nextWorld);
-              },
-              child: const Text('Continue'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   /// ==========================================================================
@@ -272,8 +242,17 @@ class _WinScreenState extends State<WinScreen>
   /// Opens the next global level.
   ///
   /// The next level is identified only by its global level number.
+  ///
+  /// This is only available when:
+  /// - the level is valid,
+  /// - this is not a replay,
+  /// - this is not the last level of the world.
   void _openNextLevel() {
-    if (_isLoading || _isReplay || _isLastLevel) {
+    if (!mounted ||
+        _isLoading ||
+        _isReplay ||
+        _isLastLevel ||
+        _isNavigating) {
       return;
     }
 
@@ -283,8 +262,11 @@ class _WinScreenState extends State<WinScreen>
       _showMessage(
         'You have completed all available levels!',
       );
+
       return;
     }
+
+    _isNavigating = true;
 
     Navigator.pushReplacementNamed(
       context,
@@ -299,9 +281,13 @@ class _WinScreenState extends State<WinScreen>
   ///
   /// Only the global level number is required.
   void _replayLevel() {
-    if (!_isValidLevel) {
+    if (!mounted ||
+        !_isValidLevel ||
+        _isNavigating) {
       return;
     }
+
+    _isNavigating = true;
 
     Navigator.pushReplacementNamed(
       context,
@@ -312,33 +298,80 @@ class _WinScreenState extends State<WinScreen>
     );
   }
 
-  /// Returns to the level map for the current level's world.
+  /// Replaces the entire current navigation stack with a fresh level map.
+  ///
+  /// This is intentionally different from pushReplacementNamed().
+  ///
+  /// Example:
+  ///
+  /// Home
+  ///   -> Level Map
+  ///   -> Game
+  ///   -> Win
+  ///
+  /// becomes:
+  ///
+  /// Level Map
+  ///
+  /// The previous map, GameScreen, WinScreen, and any intermediate routes
+  /// are removed from the navigation stack.
+  void _replaceWithLevelMap(int world) {
+    if (!mounted ||
+        _isNavigating ||
+        !_isValidWorldNumber(world)) {
+      return;
+    }
+
+    _isNavigating = true;
+
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.levels,
+      (Route<dynamic> route) => false,
+      arguments: world,
+    );
+  }
+
+  /// Returns to the current world's level map.
+  ///
+  /// A fresh LevelMapScreen is created and all previous routes are removed.
   void _backToLevelMap() {
     if (!_isValidLevel) {
       return;
     }
 
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.levels,
-      arguments: _world,
-    );
+    _replaceWithLevelMap(_world);
   }
 
-  /// Opens a specific world.
-  void _openWorld(int world) {
-    if (!mounted) return;
-
-    if (world < GameConfig.minimumWorld ||
-        world > GameConfig.totalWorlds) {
+  /// Continues after completing a world.
+  ///
+  /// For a normal world:
+  ///   World 1 complete -> World 2 map
+  ///
+  /// For the final world:
+  ///   Final world complete -> current world map
+  void _continueFromWorldComplete() {
+    if (!mounted ||
+        !_isWorldComplete ||
+        _isNavigating) {
       return;
     }
 
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.levels,
-      arguments: world,
-    );
+    if (_isFinalWorld) {
+      _replaceWithLevelMap(_world);
+      return;
+    }
+
+    _replaceWithLevelMap(_world + 1);
+  }
+
+  /// ==========================================================================
+  /// VALIDATION
+  /// ==========================================================================
+
+  bool _isValidWorldNumber(int world) {
+    return world >= GameConfig.minimumWorld &&
+        world <= GameConfig.totalWorlds;
   }
 
   /// ==========================================================================
@@ -346,7 +379,9 @@ class _WinScreenState extends State<WinScreen>
   /// ==========================================================================
 
   void _showMessage(String message) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -376,14 +411,25 @@ class _WinScreenState extends State<WinScreen>
   }
 
   /// ==========================================================================
+  /// RESPONSIVE BUTTON WIDTH
+  /// ==========================================================================
+
+  double _buttonWidth(BuildContext context) {
+    final double availableWidth =
+        MediaQuery.sizeOf(context).width - 48;
+
+    return availableWidth.clamp(0.0, 320.0);
+  }
+
+  /// ==========================================================================
   /// PRIMARY ACTION
   /// ==========================================================================
 
   Widget _buildNextLevelButton() {
     return SizedBox(
-      width: 320,
+      width: _buttonWidth(context),
       child: ElevatedButton(
-        onPressed: _openNextLevel,
+        onPressed: _isNavigating ? null : _openNextLevel,
         style: ElevatedButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
           padding: const EdgeInsets.symmetric(
@@ -407,22 +453,22 @@ class _WinScreenState extends State<WinScreen>
   }
 
   /// ==========================================================================
-  /// SECONDARY ACTION
+  /// REPLAY BUTTON
   /// ==========================================================================
 
   Widget _buildReplayButton() {
     return SizedBox(
-      width: 280,
+      width: _buttonWidth(context),
       child: OutlinedButton(
-        onPressed: _replayLevel,
+        onPressed: _isNavigating ? null : _replayLevel,
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(44),
+          minimumSize: const Size.fromHeight(48),
           padding: const EdgeInsets.symmetric(
-            vertical: 10,
+            vertical: 12,
             horizontal: 20,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         child: const Text(
@@ -431,6 +477,66 @@ class _WinScreenState extends State<WinScreen>
             fontSize: 15,
             fontWeight: FontWeight.w500,
           ),
+        ),
+      ),
+    );
+  }
+
+  /// ==========================================================================
+  /// WORLD COMPLETE BUTTON
+  /// ==========================================================================
+
+  Widget _buildWorldCompleteButton() {
+    final String label =
+        _isFinalWorld ? 'Back to Level Map' : 'Continue';
+
+    return SizedBox(
+      width: _buttonWidth(context),
+      child: ElevatedButton(
+        onPressed: _isNavigating
+            ? null
+            : _continueFromWorldComplete,
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          padding: const EdgeInsets.symmetric(
+            vertical: 12,
+            horizontal: 20,
+          ),
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ==========================================================================
+  /// LEVEL MAP BUTTON
+  /// ==========================================================================
+
+  Widget _buildLevelMapButton(ThemeData theme) {
+    return TextButton(
+      onPressed: _isNavigating ? null : _backToLevelMap,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
+        minimumSize: const Size(0, 40),
+      ),
+      child: Text(
+        'Back to Level Map',
+        style: TextStyle(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -474,7 +580,11 @@ class _WinScreenState extends State<WinScreen>
                 /// TITLE
                 /// ============================================================
                 Text(
-                  'Level Complete!',
+                  _isWorldComplete
+                      ? (_isFinalWorld
+                          ? 'All Worlds Complete!'
+                          : 'World Complete!')
+                      : 'Level Complete!',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -483,12 +593,27 @@ class _WinScreenState extends State<WinScreen>
 
                 const SizedBox(height: 6),
 
-                Text(
-                  'Level ${widget.levelNumber}',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                /// ============================================================
+                /// LEVEL / WORLD SUBTITLE
+                /// ============================================================
+                if (_isWorldComplete)
+                  Text(
+                    _isFinalWorld
+                        ? 'World $_world completed!'
+                        : 'World $_world completed!',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  )
+                else
+                  Text(
+                    'Level ${widget.levelNumber}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                ),
 
                 const SizedBox(height: 20),
 
@@ -516,9 +641,11 @@ class _WinScreenState extends State<WinScreen>
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
+                  textAlign: TextAlign.center,
                 ),
 
                 const SizedBox(height: 28),
+
                 /// ============================================================
                 /// ACTIONS
                 /// ============================================================
@@ -533,18 +660,54 @@ class _WinScreenState extends State<WinScreen>
                     style: theme.textTheme.bodyLarge,
                     textAlign: TextAlign.center,
                   )
-                else ...[
-                  /// ==========================================================
+                else if (_isWorldComplete) ...[
+                  /// ========================================================
+                  /// WORLD COMPLETE MESSAGE
+                  /// ========================================================
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                    ),
+                    child: Text(
+                      _isFinalWorld
+                          ? 'Congratulations! You have completed '
+                              'all available worlds.'
+                          : 'Congratulations! World $_world is complete '
+                              'and World ${_world + 1} is now unlocked.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  /// ========================================================
+                  /// WORLD COMPLETE PRIMARY ACTION
+                  /// ========================================================
+                  _buildWorldCompleteButton(),
+
+                  const SizedBox(height: 12),
+
+                  /// ========================================================
+                  /// REPLAY
+                  /// ========================================================
+                  _buildReplayButton(),
+                ] else ...[
+                  /// ========================================================
                   /// NEXT LEVEL
-                  /// ==========================================================
-                  if (!_isReplay && !_isLastLevel) ...[
+                  /// ========================================================
+                  if (!_isReplay) ...[
                     _buildNextLevelButton(),
                     const SizedBox(height: 16),
                   ],
 
-                  /// ==========================================================
+                  /// ========================================================
                   /// REPLAY INFORMATION
-                  /// ==========================================================
+                  /// ========================================================
                   if (_isReplay) ...[
                     Text(
                       'Replaying Level',
@@ -557,53 +720,17 @@ class _WinScreenState extends State<WinScreen>
                     const SizedBox(height: 14),
                   ],
 
-                  /// ==========================================================
-                  /// WORLD COMPLETE INFORMATION
-                  /// ==========================================================
-                  if (_isLastLevel && !_isReplay)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: 16,
-                      ),
-                      child: Text(
-                        _world == GameConfig.totalWorlds
-                            ? 'All Worlds Complete!'
-                            : 'World $_world Complete!',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-
-                  /// ==========================================================
+                  /// ========================================================
                   /// REPLAY
-                  /// ==========================================================
+                  /// ========================================================
                   _buildReplayButton(),
 
                   const SizedBox(height: 12),
 
-                  /// ==========================================================
+                  /// ========================================================
                   /// LEVEL MAP
-                  /// ==========================================================
-                  TextButton(
-                    onPressed: _backToLevelMap,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      minimumSize: const Size(0, 40),
-                    ),
-                    child: Text(
-                      'Back to Level Map',
-                      style: TextStyle(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
+                  /// ========================================================
+                  _buildLevelMapButton(theme),
                 ],
               ],
             ),
