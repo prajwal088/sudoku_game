@@ -11,9 +11,15 @@ import 'package:flutter/material.dart';
 ///
 /// Design Principles:
 /// - Fully responsive layout
-/// - Theme-aware (no hardcoded colors)
 /// - Strong typing for callbacks
 /// - Reusable & scalable
+/// - Accessible (every button has a spoken label)
+/// - Button styles are built once and shared, not per button per build
+///
+/// Colors:
+/// The pad uses the game's fixed palette (blue numbers; orange undo, green
+/// hint, red erase) with explicit white foregrounds, so it looks the same
+/// regardless of the app theme.
 /// ============================================================================
 
 class NumberPad extends StatelessWidget {
@@ -29,130 +35,129 @@ class NumberPad extends StatelessWidget {
   /// Erase current cell
   final VoidCallback onErase;
 
+  /// When false every button is disabled (for example while a finished level
+  /// is being saved). Defaults to true, so existing callers are unaffected.
+  final bool enabled;
+
   const NumberPad({
     super.key,
     required this.onNumberSelected,
     required this.onUndo,
     required this.onHint,
     required this.onErase,
+    this.enabled = true,
   });
 
-  /// ==========================================================================
-  /// NUMBER BUTTON
-  /// ==========================================================================
-  Widget _buildNumberButton(BuildContext context, int number) {
+  // ==========================================================================
+  // SHARED BUTTON STYLES
+  // ==========================================================================
 
+  static const EdgeInsets _buttonPadding = EdgeInsets.symmetric(vertical: 16);
+
+  static final RoundedRectangleBorder _buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(10),
+  );
+
+  static ButtonStyle _buildStyle(Color color) {
+    return ElevatedButton.styleFrom(
+      padding: _buttonPadding,
+      backgroundColor: color,
+      // Explicit, so digits are readable whatever the app theme's elevated
+      // button foreground is.
+      foregroundColor: Colors.white,
+      disabledBackgroundColor: color.withValues(alpha: 0.4),
+      disabledForegroundColor: Colors.white70,
+      shape: _buttonShape,
+      elevation: 2,
+    );
+  }
+
+  static final ButtonStyle _numberStyle = _buildStyle(Colors.blue.shade500);
+  static final ButtonStyle _undoStyle = _buildStyle(Colors.orange);
+  static final ButtonStyle _hintStyle = _buildStyle(Colors.green);
+  static final ButtonStyle _eraseStyle = _buildStyle(Colors.red);
+
+  static const TextStyle _numberTextStyle = TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.bold,
+  );
+
+  // ==========================================================================
+  // NUMBER BUTTON
+  // ==========================================================================
+  Widget _buildNumberButton(int number) {
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.all(4),
         child: ElevatedButton(
-          onPressed: () => onNumberSelected(number),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            backgroundColor: Colors.blue.shade500,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            elevation: 2,
-          ),
-          child: Text(
-            "$number",
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          onPressed: enabled ? () => onNumberSelected(number) : null,
+          style: _numberStyle,
+          child: Text('$number', style: _numberTextStyle),
         ),
       ),
     );
   }
 
-  /// ==========================================================================
-  /// ACTION BUTTON (Undo / Hint / Erase)
-  /// ==========================================================================
-  Widget _buildActionButton(
-    BuildContext context, {
+  // ==========================================================================
+  // ACTION BUTTON (Undo / Hint / Erase)
+  // ==========================================================================
+  Widget _buildActionButton({
     required IconData icon,
+    required String label,
     required VoidCallback onPressed,
-    required Color color,
+    required ButtonStyle style,
   }) {
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.all(4),
         child: ElevatedButton(
-          onPressed: onPressed,
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            backgroundColor: color,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            elevation: 2,
-          ),
-          child: Icon(icon, size: 22),
+          onPressed: enabled ? onPressed : null,
+          style: style,
+          // The icon-only button is announced as "Undo" / "Hint" / "Erase".
+          child: Icon(icon, size: 22, semanticLabel: label),
         ),
       ),
     );
   }
 
-  /// ==========================================================================
-  /// BUILD UI
-  /// ==========================================================================
+  // ==========================================================================
+  // BUILD UI
+  // ==========================================================================
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: [
-
-        /// ================= NUMBERS ROW 1 =================
-        Row(
-          children: [
-            _buildNumberButton(context, 1),
-            _buildNumberButton(context, 2),
-            _buildNumberButton(context, 3),
-          ],
-        ),
-
-        /// ================= NUMBERS ROW 2 =================
-        Row(
-          children: [
-            _buildNumberButton(context, 4),
-            _buildNumberButton(context, 5),
-            _buildNumberButton(context, 6),
-          ],
-        ),
-
-        /// ================= NUMBERS ROW 3 =================
-        Row(
-          children: [
-            _buildNumberButton(context, 7),
-            _buildNumberButton(context, 8),
-            _buildNumberButton(context, 9),
-          ],
-        ),
+      children: <Widget>[
+        // ================= NUMBERS (3 rows of 1–9) =================
+        for (int row = 0; row < 3; row++)
+          Row(
+            children: <Widget>[
+              for (int col = 0; col < 3; col++)
+                _buildNumberButton((row * 3) + col + 1),
+            ],
+          ),
 
         const SizedBox(height: 8),
 
-        /// ================= ACTION BUTTONS =================
+        // ================= ACTION BUTTONS =================
         Row(
-          children: [
+          children: <Widget>[
             _buildActionButton(
-              context,
               icon: Icons.undo,
+              label: 'Undo',
               onPressed: onUndo,
-              color: Colors.orange,
+              style: _undoStyle,
             ),
             _buildActionButton(
-              context,
               icon: Icons.lightbulb,
+              label: 'Hint',
               onPressed: onHint,
-              color: Colors.green,
+              style: _hintStyle,
             ),
             _buildActionButton(
-              context,
               icon: Icons.backspace,
+              label: 'Erase',
               onPressed: onErase,
-              color: Colors.red,
+              style: _eraseStyle,
             ),
           ],
         ),

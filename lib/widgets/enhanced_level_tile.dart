@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sudoku_game/config/game_config.dart';
 
 /// ============================================================================
 /// EnhancedLevelTile
@@ -10,7 +11,8 @@ import 'package:flutter/material.dart';
 /// - Display locked / current / completed states.
 /// - Display completion stars.
 /// - Provide a press animation.
-/// - Prevent interaction with locked levels.
+/// - Prevent opening locked levels.
+/// - Expose the tile to screen readers as a labelled button.
 ///
 /// Visual states:
 /// - Locked    → Grey + lock icon
@@ -22,8 +24,10 @@ import 'package:flutter/material.dart';
 /// - The tile does not read ProgressService.
 /// - The tile does not calculate unlock state.
 /// - The parent screen provides the LevelTileState.
-/// - [onTap] remains non-nullable because locked-level interaction is handled
-///   internally by this widget.
+/// - [onTap] remains non-nullable and is NEVER called for a locked tile.
+/// - [onLockedTap] is optional: when provided, it is called instead when a
+///   locked tile is tapped, so the parent can explain why the level is
+///   locked. When omitted, tapping a locked tile does nothing (as before).
 /// ============================================================================
 
 enum LevelTileState {
@@ -38,61 +42,58 @@ class EnhancedLevelTile extends StatefulWidget {
   final int stars;
   final VoidCallback onTap;
 
+  /// Optional feedback hook for taps on a locked tile.
+  final VoidCallback? onLockedTap;
+
   const EnhancedLevelTile({
     super.key,
     required this.levelNumber,
     required this.state,
     required this.onTap,
     this.stars = 0,
+    this.onLockedTap,
   });
 
   @override
   State<EnhancedLevelTile> createState() => _EnhancedLevelTileState();
 }
 
-class _EnhancedLevelTileState extends State<EnhancedLevelTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _scaleAnimation;
+class _EnhancedLevelTileState extends State<EnhancedLevelTile> {
+  /// The tile always draws this many star slots.
+  static const int _maxStars = GameConfig.maxStarsPerLevel;
 
-  bool get _isLocked =>
-      widget.state == LevelTileState.locked;
+  static const Duration _pressDuration = Duration(milliseconds: 100);
+  static const Duration _colorDuration = Duration(milliseconds: 250);
 
-  bool get _isActive =>
-      widget.state == LevelTileState.inProgress;
+  static const double _pressedScale = 0.92;
 
-  int get _safeStars =>
-      widget.stars.clamp(0, 3);
+  /// Press feedback is a plain flag + AnimatedScale, instead of a dedicated
+  /// AnimationController/Ticker per tile (a level map shows 25 tiles).
+  bool _isPressed = false;
 
-  @override
-  void initState() {
-    super.initState();
+  bool get _isLocked => widget.state == LevelTileState.locked;
 
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-    );
+  bool get _isActive => widget.state == LevelTileState.inProgress;
 
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 0.92,
-    ).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeInOut,
-      ),
-    );
-  }
+  int get _safeStars => widget.stars.clamp(0, _maxStars);
+
+  // ==========================================================================
+  // LIFECYCLE
+  // ==========================================================================
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void didUpdateWidget(EnhancedLevelTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // A tile that becomes locked mid-press must not stay scaled down.
+    if (_isLocked && _isPressed) {
+      _isPressed = false;
+    }
   }
 
-  /// ========================================================================
-  /// VISUALS
-  /// ========================================================================
+  // ==========================================================================
+  // VISUALS
+  // ==========================================================================
 
   Color _getBackgroundColor() {
     switch (widget.state) {
@@ -107,116 +108,149 @@ class _EnhancedLevelTileState extends State<EnhancedLevelTile>
     }
   }
 
-  /// ========================================================================
-  /// PRESS ANIMATION
-  /// ========================================================================
+  // ==========================================================================
+  // INTERACTION
+  // ==========================================================================
 
-  void _handleTapDown(TapDownDetails details) {
+  void _handleTap() {
     if (_isLocked) {
+      widget.onLockedTap?.call();
       return;
     }
 
-    _controller.forward();
+    widget.onTap();
   }
 
-  void _handleTapUp(TapUpDetails details) {
-    if (_isLocked) {
+  void _setPressed(bool pressed) {
+    if (_isLocked || _isPressed == pressed) {
       return;
     }
 
-    _controller.reverse();
+    setState(() {
+      _isPressed = pressed;
+    });
   }
 
-  void _handleTapCancel() {
-    if (_isLocked) {
-      return;
+  void _handleTapDown(TapDownDetails details) => _setPressed(true);
+
+  void _handleTapUp(TapUpDetails details) => _setPressed(false);
+
+  void _handleTapCancel() => _setPressed(false);
+
+  // ==========================================================================
+  // ACCESSIBILITY
+  // ==========================================================================
+
+  String get _semanticLabel {
+    final int level = widget.levelNumber;
+
+    switch (widget.state) {
+      case LevelTileState.locked:
+        return 'Level $level, locked';
+
+      case LevelTileState.inProgress:
+        return 'Level $level, current level';
+
+      case LevelTileState.completed:
+        return 'Level $level, completed, $_safeStars of $_maxStars stars';
     }
-
-    _controller.reverse();
   }
 
-  /// ========================================================================
-  /// BUILD
-  /// ========================================================================
+  // ==========================================================================
+  // BUILD
+  // ==========================================================================
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _isLocked ? null : widget.onTap,
-      onTapDown: _handleTapDown,
-      onTapUp: _handleTapUp,
-      onTapCancel: _handleTapCancel,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          decoration: BoxDecoration(
-            color: _getBackgroundColor(),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _isActive
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.blue.withAlpha(120),
-                      blurRadius: 12,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : const <BoxShadow>[],
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: <Widget>[
-              /// ============================================================
-              /// MAIN CONTENT
-              /// ============================================================
+    // Respect the system "reduce motion" accessibility setting.
+    final bool reduceMotion = MediaQuery.disableAnimationsOf(context);
 
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    '${widget.levelNumber}',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: _isLocked
-                          ? Colors.black26
-                          : Colors.white,
+    return Semantics(
+      button: true,
+      enabled: !_isLocked,
+      label: _semanticLabel,
+      // The visual children (number, icons) are summarised by the label.
+      excludeSemantics: true,
+      onTap: _handleTap,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _handleTap,
+        onTapDown: _handleTapDown,
+        onTapUp: _handleTapUp,
+        onTapCancel: _handleTapCancel,
+        child: AnimatedScale(
+          scale: _isPressed ? _pressedScale : 1.0,
+          duration: reduceMotion ? Duration.zero : _pressDuration,
+          curve: Curves.easeInOut,
+          child: AnimatedContainer(
+            duration: reduceMotion ? Duration.zero : _colorDuration,
+            decoration: BoxDecoration(
+              color: _getBackgroundColor(),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: _isActive
+                  ? <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.blue.withAlpha(120),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : const <BoxShadow>[],
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: <Widget>[
+                // ============================================================
+                // MAIN CONTENT
+                // ============================================================
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    // Scales down instead of overflowing for 3-digit levels
+                    // or large system text sizes.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '${widget.levelNumber}',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: _isLocked ? Colors.black26 : Colors.white,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  _buildStatusContent(),
-                ],
-              ),
-
-              /// ============================================================
-              /// ACTIVE LEVEL HIGHLIGHT
-              /// ============================================================
-
-              if (_isActive)
-                Positioned(
-                  top: -10,
-                  right: -10,
-                  child: IgnorePointer(
-                    child: CircleAvatar(
-                      radius: 25,
-                      backgroundColor:
-                          Colors.white.withAlpha(40),
-                    ),
-                  ),
+                    const SizedBox(height: 4),
+                    _buildStatusContent(),
+                  ],
                 ),
-            ],
+
+                // ============================================================
+                // ACTIVE LEVEL HIGHLIGHT
+                // ============================================================
+                if (_isActive)
+                  Positioned(
+                    top: -10,
+                    right: -10,
+                    child: IgnorePointer(
+                      child: CircleAvatar(
+                        radius: 25,
+                        backgroundColor: Colors.white.withAlpha(40),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// ========================================================================
-  /// STATUS CONTENT
-  /// ========================================================================
+  // ==========================================================================
+  // STATUS CONTENT
+  // ==========================================================================
 
   Widget _buildStatusContent() {
     if (_isLocked) {
@@ -242,26 +276,24 @@ class _EnhancedLevelTileState extends State<EnhancedLevelTile>
     );
   }
 
-  /// ========================================================================
-  /// STARS
-  /// ========================================================================
+  // ==========================================================================
+  // STARS
+  // ==========================================================================
 
   Widget _buildStars() {
     final int stars = _safeStars;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List<Widget>.generate(
-        3,
-        (int index) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List<Widget>.generate(_maxStars, (int index) {
           return Icon(
-            index < stars
-                ? Icons.star
-                : Icons.star_border,
+            index < stars ? Icons.star : Icons.star_border,
             size: 14,
             color: Colors.yellowAccent,
           );
-        },
+        }, growable: false),
       ),
     );
   }

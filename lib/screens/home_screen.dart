@@ -52,8 +52,25 @@ class _HomeScreenState extends State<HomeScreen>
   /// The next playable global level.
   int _nextLevel = GameConfig.minimumLevel;
 
+  /// True until the first load attempt finishes.
   bool _isLoading = true;
+
+  /// True once progress has been read successfully at least once, so the
+  /// button never advertises a level number it does not actually know.
+  bool _hasLoaded = false;
+
+  /// Blocks overlapping navigation (rapid taps on any button).
   bool _isNavigating = false;
+
+  /// The in-flight load, shared by concurrent callers.
+  Future<void>? _loadFuture;
+
+  /// A load was requested while another was running; run once more after.
+  bool _reloadQueued = false;
+
+  // ==========================================================================
+  // LIFECYCLE
+  // ==========================================================================
 
   @override
   void initState() {
@@ -74,57 +91,106 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
 
-    _continueAnimationController.repeat(reverse: true);
+    unawaited(_loadProgress());
 
-    _loadProgress();
-
-    /// Refresh the home screen whenever progression changes elsewhere.
+    // Refresh the home screen whenever progression changes elsewhere.
     _progressSubscription = _progressService.onProgressUpdate.listen((_) {
       if (!mounted) {
         return;
       }
 
-      debugPrint(
-        'HomeScreen: progress update received. Refreshing...',
-      );
-
-      _loadProgress();
+      unawaited(_loadProgress());
     });
   }
 
-  /// ========================================================================
-  /// LOAD PROGRESS
-  /// ========================================================================
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
 
-  Future<void> _loadProgress() async {
+    // The pulsing animation starts here (MediaQuery is unavailable in
+    // initState) and respects the system "reduce motion" setting.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _continueAnimationController
+        ..stop()
+        ..value = 1.0;
+    } else if (!_continueAnimationController.isAnimating) {
+      _continueAnimationController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _progressSubscription?.cancel();
+    _continueAnimationController.dispose();
+
+    super.dispose();
+  }
+
+  // ==========================================================================
+  // LOAD PROGRESS
+  // ==========================================================================
+
+  /// Loads the next playable level.
+  ///
+  /// A request that arrives while a load is running is not dropped and cannot
+  /// be applied out of order: it is queued and one more load runs after the
+  /// current one, so the screen always ends on the latest data.
+  Future<void> _loadProgress() {
+    final Future<void>? running = _loadFuture;
+
+    if (running != null) {
+      _reloadQueued = true;
+
+      return running;
+    }
+
+    final Future<void> future = _runLoadLoop().whenComplete(() {
+      _loadFuture = null;
+    });
+
+    _loadFuture = future;
+
+    return future;
+  }
+
+  Future<void> _runLoadLoop() async {
+    bool succeeded = true;
+
+    do {
+      _reloadQueued = false;
+
+      succeeded = await _loadOnce();
+    } while (_reloadQueued && succeeded && mounted);
+  }
+
+  /// Performs one load. Never throws. Returns false when it failed.
+  Future<bool> _loadOnce() async {
     try {
-      final int level =
-          await _progressService.getNextUnlockedLevel();
+      final int level = await _progressService.getNextUnlockedLevel();
 
       if (!mounted) {
-        return;
+        return false;
       }
 
-      final int safeLevel = level.clamp(
+      final int safeLevel = _clampInt(
+        level,
         GameConfig.minimumLevel,
         GameConfig.totalLevels,
       );
 
       setState(() {
         _nextLevel = safeLevel;
+        _hasLoaded = true;
         _isLoading = false;
       });
-    } catch (error, stackTrace) {
-      debugPrint(
-        'HomeScreen: failed to load progress: $error',
-      );
 
-      debugPrintStack(
-        stackTrace: stackTrace,
-      );
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('HomeScreen: failed to load progress: $error');
+      debugPrintStack(stackTrace: stackTrace);
 
       if (!mounted) {
-        return;
+        return false;
       }
 
       setState(() {
@@ -133,90 +199,40 @@ class _HomeScreenState extends State<HomeScreen>
 
       _showMessage(
         'Could not load your progress.',
-      );
-    }
-  }
-
-  /// ========================================================================
-  /// CONTINUE
-  /// ========================================================================
-
-  Future<void> _handleContinue() async {
-    if (_isLoading || _isNavigating) {
-      return;
-    }
-
-    setState(() {
-      _isNavigating = true;
-    });
-
-    try {
-      /// Always ask ProgressService for the current source of truth.
-      final int globalLevel =
-          await _progressService.getNextUnlockedLevel();
-
-      if (!mounted) {
-        return;
-      }
-
-      /// Safety validation.
-      if (globalLevel < GameConfig.minimumLevel ||
-          globalLevel > GameConfig.totalLevels) {
-        _showMessage(
-          'No playable level is currently available.',
-        );
-        return;
-      }
-
-      /// GameArguments intentionally contains ONLY the global level ID.
-      await Navigator.pushNamed(
-        context,
-        AppRoutes.game,
-        arguments: GameArguments(
-          levelNumber: globalLevel,
+        action: SnackBarAction(
+          label: 'Retry',
+          onPressed: () => unawaited(_loadProgress()),
         ),
       );
 
-      if (!mounted) {
-        return;
-      }
-
-      /// The player may have completed a level.
-      /// Reload the displayed Continue level.
-      await _loadProgress();
-    } catch (error, stackTrace) {
-      debugPrint(
-        'HomeScreen: failed to continue to level: $error',
-      );
-
-      debugPrintStack(
-        stackTrace: stackTrace,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      _showMessage(
-        'Could not open the level.',
-      );
-    } finally {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isNavigating = false;
-      });
+      return false;
     }
   }
 
-  /// ========================================================================
-  /// WORLD MAP
-  /// ========================================================================
+  static int _clampInt(int value, int minimum, int maximum) {
+    if (value < minimum) {
+      return minimum;
+    }
 
-  Future<void> _openWorldMap() async {
-    if (_isNavigating) {
+    if (value > maximum) {
+      return maximum;
+    }
+
+    return value;
+  }
+
+  // ==========================================================================
+  // NAVIGATION
+  // ==========================================================================
+
+  /// Runs [push] while blocking every other navigation button, shows
+  /// [errorMessage] on failure, and optionally refreshes progress afterwards.
+  Future<void> _navigate(
+    Future<void> Function() push, {
+    required String errorMessage,
+    bool reloadAfter = false,
+  }) async {
+    if (!mounted || _isNavigating) {
       return;
     }
 
@@ -224,70 +240,123 @@ class _HomeScreenState extends State<HomeScreen>
       _isNavigating = true;
     });
 
+    bool succeeded = false;
+
     try {
-      await Navigator.pushNamed(
-        context,
-        AppRoutes.worlds,
-      );
+      await push();
 
-      if (!mounted) {
-        return;
-      }
-
-      /// Progress may have changed while the player was viewing the map.
-      await _loadProgress();
+      succeeded = true;
     } catch (error, stackTrace) {
-      debugPrint(
-        'HomeScreen: failed to open world map: $error',
-      );
+      debugPrint('HomeScreen: navigation failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
 
-      debugPrintStack(
-        stackTrace: stackTrace,
-      );
-
-      if (!mounted) {
-        return;
+      if (mounted) {
+        _showMessage(errorMessage);
       }
-
-      _showMessage(
-        'Could not open the World Map.',
-      );
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
       }
+    }
 
-      setState(() {
-        _isNavigating = false;
-      });
+    // The player may have completed a level or unlocked a world.
+    if (succeeded && reloadAfter && mounted) {
+      unawaited(_loadProgress());
     }
   }
 
-  /// ========================================================================
-  /// USER FEEDBACK
-  /// ========================================================================
+  /// CONTINUE
+  ///
+  /// Always asks ProgressService for the current source of truth rather than
+  /// trusting the (possibly slightly stale) value shown on the button.
+  Future<void> _continueToNextLevel() async {
+    final int globalLevel = await _progressService.getNextUnlockedLevel();
 
-  void _showMessage(String message) {
     if (!mounted) {
       return;
     }
 
-    final ScaffoldMessengerState messenger =
-        ScaffoldMessenger.of(context);
+    // Safety validation.
+    if (!GameConfig.isValidGlobalLevel(globalLevel)) {
+      _showMessage('No playable level is currently available.');
+      return;
+    }
 
-    messenger
+    // GameArguments intentionally contains ONLY the global level ID.
+    await Navigator.pushNamed(
+      context,
+      AppRoutes.game,
+      arguments: GameArguments(levelNumber: globalLevel),
+    );
+  }
+
+  void _handleContinue() {
+    if (_isLoading || _isNavigating) {
+      return;
+    }
+
+    unawaited(
+      _navigate(
+        _continueToNextLevel,
+        errorMessage: 'Could not open the level.',
+        reloadAfter: true,
+      ),
+    );
+  }
+
+  void _openWorldMap() {
+    unawaited(
+      _navigate(
+        () => Navigator.pushNamed(context, AppRoutes.worlds),
+        errorMessage: 'Could not open the World Map.',
+        reloadAfter: true,
+      ),
+    );
+  }
+
+  void _openStatistics() {
+    unawaited(
+      _navigate(
+        () => Navigator.pushNamed(context, AppRoutes.statistics),
+        errorMessage: 'Could not open Statistics.',
+      ),
+    );
+  }
+
+  void _openSettings() {
+    unawaited(
+      _navigate(
+        () => Navigator.pushNamed(context, AppRoutes.settings),
+        errorMessage: 'Could not open Settings.',
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // USER FEEDBACK
+  // ==========================================================================
+
+  void _showMessage(String message, {SnackBarAction? action}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
+          action: action,
         ),
       );
   }
 
-  /// ========================================================================
-  /// BUILD
-  /// ========================================================================
+  // ==========================================================================
+  // BUILD
+  // ==========================================================================
 
   @override
   Widget build(BuildContext context) {
@@ -302,34 +371,31 @@ class _HomeScreenState extends State<HomeScreen>
               vertical: 32,
             ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 420,
-              ),
+              constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  /// ==========================================================
-                  /// GAME ICON
-                  /// ==========================================================
-
-                  Icon(
-                    Icons.grid_on,
-                    size: 120,
-                    color: theme.colorScheme.primary,
+                  // Game icon
+                  ExcludeSemantics(
+                    child: Icon(
+                      Icons.grid_on,
+                      size: 120,
+                      color: theme.colorScheme.primary,
+                    ),
                   ),
 
                   const SizedBox(height: 10),
 
-                  /// ==========================================================
-                  /// TITLE
-                  /// ==========================================================
-
-                  Text(
-                    'Sudoku',
-                    style: theme.textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+                  // Title
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'Sudoku',
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
                   ),
 
                   const SizedBox(height: 8),
@@ -344,10 +410,7 @@ class _HomeScreenState extends State<HomeScreen>
 
                   const SizedBox(height: 40),
 
-                  /// ==========================================================
-                  /// CONTINUE BUTTON
-                  /// ==========================================================
-
+                  // Continue button
                   ScaleTransition(
                     scale: _continueScaleAnimation,
                     child: SizedBox(
@@ -357,9 +420,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ? null
                             : _handleContinue,
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 17,
-                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 17),
                         ),
                         child: _isLoading
                             ? const SizedBox(
@@ -370,7 +431,12 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               )
                             : Text(
-                                'Continue • Level $_nextLevel',
+                                // Never show a guessed level number when the
+                                // real one could not be loaded.
+                                _hasLoaded
+                                    ? 'Continue • Level $_nextLevel'
+                                    : 'Continue',
+                                textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w600,
@@ -382,35 +448,24 @@ class _HomeScreenState extends State<HomeScreen>
 
                   const SizedBox(height: 15),
 
-                  /// ==========================================================
-                  /// WORLD MAP
-                  /// ==========================================================
-
+                  // World map
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
-                      onPressed:
-                          _isNavigating ? null : _openWorldMap,
+                      onPressed: _isNavigating ? null : _openWorldMap,
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 16,
-                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: const Text(
                         'World Map',
-                        style: TextStyle(
-                          fontSize: 18,
-                        ),
+                        style: TextStyle(fontSize: 18),
                       ),
                     ),
                   ),
 
                   const SizedBox(height: 30),
 
-                  /// ==========================================================
-                  /// SECONDARY OPTIONS
-                  /// ==========================================================
-
+                  // Secondary options
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -418,30 +473,14 @@ class _HomeScreenState extends State<HomeScreen>
                         context: context,
                         icon: Icons.bar_chart,
                         label: 'Statistics',
-                        onPressed: _isNavigating
-                            ? null
-                            : () {
-                                Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.statistics,
-                                );
-                              },
+                        onPressed: _isNavigating ? null : _openStatistics,
                       ),
-
                       const SizedBox(width: 32),
-
                       _buildSecondaryAction(
                         context: context,
                         icon: Icons.settings,
                         label: 'Settings',
-                        onPressed: _isNavigating
-                            ? null
-                            : () {
-                                Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.settings,
-                                );
-                              },
+                        onPressed: _isNavigating ? null : _openSettings,
                       ),
                     ],
                   ),
@@ -454,9 +493,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// ========================================================================
-  /// SECONDARY ACTION
-  /// ========================================================================
+  // ==========================================================================
+  // SECONDARY ACTION
+  // ==========================================================================
 
   Widget _buildSecondaryAction({
     required BuildContext context,
@@ -471,31 +510,20 @@ class _HomeScreenState extends State<HomeScreen>
       children: <Widget>[
         IconButton(
           tooltip: label,
-          icon: Icon(
-            icon,
-            size: 28,
-          ),
+          icon: Icon(icon, size: 28),
           onPressed: onPressed,
         ),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+        // The IconButton tooltip already provides the accessible name; hiding
+        // the visual label avoids screen readers announcing it twice.
+        ExcludeSemantics(
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       ],
     );
-  }
-
-  /// ========================================================================
-  /// DISPOSE
-  /// ========================================================================
-
-  @override
-  void dispose() {
-    _progressSubscription?.cancel();
-    _continueAnimationController.dispose();
-
-    super.dispose();
   }
 }

@@ -109,8 +109,10 @@ abstract final class GameConfig {
   // GAMEPLAY LIMITS
   // ==========================================================================
 
-  /// Maximum number of hints that may be used during one level.
-  static const int maximumHintsPerLevel = 3;
+  /// TODO(production): this is a development value. Replace it with
+  /// `GameConfig.maximumHintsPerLevel` (or a player-inventory service) once
+  /// the hint economy is decided. Unlimited hints make the stars trivial.
+  static const int maximumHintsPerLevel = 1000;
 
   /// Maximum number of mistakes permitted during one level.
   ///

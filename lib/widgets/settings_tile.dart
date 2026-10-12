@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 /// - Consistent spacing
 /// - Good accessibility
 /// - Lightweight & reusable
+/// - Safe with any theme (no null-assertions on theme colors)
 /// ============================================================================
 
 class SettingsTile extends StatelessWidget {
@@ -36,45 +37,61 @@ class SettingsTile extends StatelessWidget {
     this.isDanger = false,
   });
 
+  // ==========================================================================
+  // SHARED VALUES
+  // ==========================================================================
+
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(16));
+
+  static final TextStyle _subtitleStyle = TextStyle(
+    fontSize: 13,
+    color: Colors.grey.shade600,
+  );
+
+  // ==========================================================================
+  // BUILD
+  // ==========================================================================
+
   @override
   Widget build(BuildContext context) {
-    /// Resolve colors based on state
-    final Color textColor =
-        isDanger ? Colors.red : Theme.of(context).textTheme.bodyLarge!.color!;
+    final ThemeData theme = Theme.of(context);
 
-    final Color iconColor =
-        isDanger ? Colors.red : Theme.of(context).iconTheme.color!;
+    // Theme colors can legitimately be null (for example in a custom
+    // TextTheme or IconTheme), so the old `!` assertions could crash.
+    // Fall back to the color scheme instead.
+    final Color textColor = isDanger
+        ? Colors.red
+        : (theme.textTheme.bodyLarge?.color ?? theme.colorScheme.onSurface);
+
+    final Color iconColor = isDanger
+        ? Colors.red
+        : (theme.iconTheme.color ?? theme.colorScheme.onSurface);
+
+    final String? subtitleText = subtitle;
+    final Widget? trailingWidget = trailing;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2, // lighter shadow for modern UI
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: _radius),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: _radius,
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
-            children: [
-              /// ================= ICON =================
-              Icon(
-                icon,
-                color: iconColor,
-              ),
+            children: <Widget>[
+              // ================= ICON =================
+              Icon(icon, color: iconColor),
 
               const SizedBox(width: 16),
 
-              /// ================= TEXT CONTENT =================
+              // ================= TEXT CONTENT =================
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    /// TITLE
+                  children: <Widget>[
+                    // TITLE
                     Text(
                       title,
                       style: TextStyle(
@@ -84,27 +101,26 @@ class SettingsTile extends StatelessWidget {
                       ),
                     ),
 
-                    /// SUBTITLE (optional)
-                    if (subtitle != null) ...[
+                    // SUBTITLE (optional)
+                    if (subtitleText != null) ...<Widget>[
                       const SizedBox(height: 4),
                       Text(
-                        subtitle!,
+                        subtitleText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                        ),
+                        style: _subtitleStyle,
                       ),
                     ],
                   ],
                 ),
               ),
 
-              /// ================= TRAILING =================
-              if (trailing != null) ...[
-                trailing!,
-              ],            
+              // ================= TRAILING =================
+              if (trailingWidget != null) ...<Widget>[
+                // Keeps long text from touching the trailing widget.
+                const SizedBox(width: 8),
+                trailingWidget,
+              ],
             ],
           ),
         ),
