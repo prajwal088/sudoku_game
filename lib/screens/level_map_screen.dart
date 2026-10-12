@@ -504,6 +504,19 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Back to World Map',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (isRootRoute) {
+                // This map was opened as a fresh root route by WinScreen.
+                _goToWorldMap();
+              } else {
+                // A world map already exists underneath this screen.
+                Navigator.maybePop(context);
+              }
+            },
+          ),
           title: Text('World ${widget.world}'),
           centerTitle: true,
           actions: <Widget>[

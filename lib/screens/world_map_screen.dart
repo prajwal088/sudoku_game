@@ -389,6 +389,19 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (isRootRoute) {
+                // The world map has no previous route, so return Home.
+                _goHome();
+              } else {
+                // Return to the existing screen underneath the world map.
+                Navigator.maybePop(context);
+              }
+            },
+          ),
           title: const Text('Select World'),
           centerTitle: true,
         ),

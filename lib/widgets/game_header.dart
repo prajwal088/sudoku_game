@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 /// A reusable header widget for game screens.
 ///
 /// Features:
-/// - Customizable title
-/// - Optional subtitle (e.g., Level / World)
+/// - Customizable title (announced to screen readers as a heading)
+/// - Optional subtitle (e.g., Level / World); an empty string is treated as
+///   "no subtitle"
 /// - Optional actions (icons/buttons)
 /// - Consistent padding & styling
+/// - Long titles and subtitles wrap instead of overflowing
 ///
 /// Usage:
 /// GameHeader(
@@ -31,9 +33,14 @@ class GameHeader extends StatelessWidget {
     this.actions,
   });
 
+  static final Color _subtitleColor = Colors.grey.shade600;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final ThemeData theme = Theme.of(context);
+
+    final String? subtitleText = subtitle;
+    final List<Widget>? actionWidgets = actions;
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -42,28 +49,32 @@ class GameHeader extends StatelessWidget {
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          /// ================= TITLE + SUBTITLE =================
+        children: <Widget>[
+          // ================= TITLE + SUBTITLE =================
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                /// TITLE
-                Text(
-                  title,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+              children: <Widget>[
+                // TITLE
+                Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
 
-                /// SUBTITLE (optional)
-                if (subtitle != null)
+                // SUBTITLE (optional)
+                if (subtitleText != null && subtitleText.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      subtitle!,
+                      subtitleText,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: _subtitleColor,
                       ),
                     ),
                   ),
@@ -71,8 +82,8 @@ class GameHeader extends StatelessWidget {
             ),
           ),
 
-          /// ================= ACTIONS =================
-          if (actions != null) ...actions!,
+          // ================= ACTIONS =================
+          if (actionWidgets != null) ...actionWidgets,
         ],
       ),
     );

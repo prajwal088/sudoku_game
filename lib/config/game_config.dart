@@ -77,11 +77,12 @@ abstract final class GameConfig {
   /// First valid local level number inside a world.
   static const int minimumLocalLevel = 1;
 
+  ///TODO: chnage worlds and levels to 10 and 25 respectively
   /// Total number of worlds in the campaign.
-  static const int totalWorlds = 10;
+  static const int totalWorlds = 2;
 
   /// Number of levels contained in every world.
-  static const int levelsPerWorld = 25;
+  static const int levelsPerWorld = 2;
 
   /// Total number of playable campaign levels.
   ///
