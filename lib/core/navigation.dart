@@ -43,6 +43,9 @@ import 'package:flutter/foundation.dart';
 ///
 /// This prevents multiple representations of the same level from becoming
 /// inconsistent across screens and services.
+///
+/// The value is validated by the router (against GameConfig), not here, so
+/// this file stays free of game configuration.
 @immutable
 class GameArguments {
   final int levelNumber;
@@ -53,8 +56,7 @@ class GameArguments {
 
   @override
   bool operator ==(Object other) {
-    return other is GameArguments &&
-        other.levelNumber == levelNumber;
+    return other is GameArguments && other.levelNumber == levelNumber;
   }
 
   @override
@@ -84,9 +86,13 @@ abstract final class AppRoutes {
   static const String worlds = '/worlds';
 
   /// Level selection screen.
+  ///
+  /// Argument: the world number (`int`).
   static const String levels = '/levels';
 
   /// Sudoku gameplay screen.
+  ///
+  /// Argument: [GameArguments].
   static const String game = '/game';
 
   /// Application settings screen.
@@ -97,5 +103,24 @@ abstract final class AppRoutes {
 
   /// Controlled screen displayed when mandatory application startup
   /// initialization fails.
-  static const String startupError = '/startup-error';
+  ///
+  /// IMPORTANT: this name intentionally has NO leading slash.
+  ///
+  /// When `MaterialApp.initialRoute` starts with "/", Flutter builds the
+  /// parent routes first: for "/startup-error" it would build "/" (the Home
+  /// screen) underneath the error screen. Home would then run against
+  /// services that failed to initialize. A name without a leading slash is
+  /// pushed on its own, so only the error screen is created.
+  static const String startupError = 'startup-error';
+
+  /// Every route name, for tests that verify the router handles each one.
+  static const List<String> all = <String>[
+    home,
+    worlds,
+    levels,
+    game,
+    settings,
+    statistics,
+    startupError,
+  ];
 }

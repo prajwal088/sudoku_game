@@ -14,11 +14,22 @@
 /// - Never mutates caller-provided boards.
 /// - Safely handles malformed boards.
 /// - Compatible with gameplay, hints, mistake tracking, and completion checks.
+/// - Whole-board checks use bitmasks (one int per row/column/box) instead of
+///   allocating a Set for each of the 27 units.
 ///
 /// Board representation:
 /// - 9 rows x 9 columns.
 /// - 0 represents an empty cell.
 /// - 1..9 represent Sudoku values.
+///
+/// NOTE ON "SOLVED":
+/// - [isBoardComplete] answers "is this a complete, rule-valid Sudoku?".
+///   If the puzzle's given clues are unchanged (fixed cells cannot be edited),
+///   that is already a correct solution, even when the puzzle has more than
+///   one.
+/// - [isValidSolution] / [matchesSolution] additionally compare against ONE
+///   stored solution, so a different but valid completion is rejected when a
+///   puzzle is not unique.
 /// ============================================================================
 library;
 
@@ -33,10 +44,10 @@ class SudokuValidator {
   // MOVE VALIDATION
   // ==========================================================================
 
-  /// Checks whether [num] can legally be placed at [row], [col].
+  /// Checks whether [value] can legally be placed at [row], [col].
   ///
   /// [excludeSelf] should normally remain true when the cell already contains
-  /// [num], such as when validating an existing board.
+  /// [value], such as when validating an existing board.
   ///
   /// Examples:
   ///
@@ -52,15 +63,15 @@ class SudokuValidator {
   /// Returns false when:
   /// - the board is malformed
   /// - row/column is outside 0..8
-  /// - num is outside 0..9
-  /// - num conflicts with the row
-  /// - num conflicts with the column
-  /// - num conflicts with the 3x3 box
+  /// - value is outside 0..9
+  /// - value conflicts with the row
+  /// - value conflicts with the column
+  /// - value conflicts with the 3x3 box
   static bool isValidMove(
     List<List<int>> board,
     int row,
     int col,
-    int num, {
+    int value, {
     bool excludeSelf = true,
   }) {
     if (!_isValidBoardShape(board)) {
@@ -71,12 +82,12 @@ class SudokuValidator {
       return false;
     }
 
-    if (num < emptyValue || num > maxValue) {
+    if (value < emptyValue || value > maxValue) {
       return false;
     }
 
     // Empty cells do not violate Sudoku rules.
-    if (num == emptyValue) {
+    if (value == emptyValue) {
       return true;
     }
 
@@ -89,7 +100,7 @@ class SudokuValidator {
         continue;
       }
 
-      if (board[row][currentCol] == num) {
+      if (board[row][currentCol] == value) {
         return false;
       }
     }
@@ -103,7 +114,7 @@ class SudokuValidator {
         continue;
       }
 
-      if (board[currentRow][col] == num) {
+      if (board[currentRow][col] == value) {
         return false;
       }
     }
@@ -129,7 +140,7 @@ class SudokuValidator {
           continue;
         }
 
-        if (board[currentRow][currentCol] == num) {
+        if (board[currentRow][currentCol] == value) {
           return false;
         }
       }
@@ -176,10 +187,6 @@ class SudokuValidator {
       for (int col = 0; col < gridSize; col++) {
         final currentValue = currentBoard[row][col];
 
-        if (currentValue < emptyValue || currentValue > maxValue) {
-          return false;
-        }
-
         // Empty cells are allowed while playing.
         if (currentValue == emptyValue) {
           continue;
@@ -211,63 +218,7 @@ class SudokuValidator {
       return false;
     }
 
-    // ------------------------------------------------------------------------
-    // ROWS
-    // ------------------------------------------------------------------------
-
-    for (int row = 0; row < gridSize; row++) {
-      final seen = <int>{};
-
-      for (int col = 0; col < gridSize; col++) {
-        final value = board[row][col];
-
-        if (value < minValue || value > maxValue) {
-          return false;
-        }
-
-        if (!seen.add(value)) {
-          return false;
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // COLUMNS
-    // ------------------------------------------------------------------------
-
-    for (int col = 0; col < gridSize; col++) {
-      final seen = <int>{};
-
-      for (int row = 0; row < gridSize; row++) {
-        final value = board[row][col];
-
-        if (!seen.add(value)) {
-          return false;
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // 3x3 BOXES
-    // ------------------------------------------------------------------------
-
-    for (int boxRow = 0; boxRow < gridSize; boxRow += boxSize) {
-      for (int boxCol = 0; boxCol < gridSize; boxCol += boxSize) {
-        final seen = <int>{};
-
-        for (int row = boxRow; row < boxRow + boxSize; row++) {
-          for (int col = boxCol; col < boxCol + boxSize; col++) {
-            final value = board[row][col];
-
-            if (!seen.add(value)) {
-              return false;
-            }
-          }
-        }
-      }
-    }
-
-    return true;
+    return _hasNoConflicts(board, requireComplete: true);
   }
 
   // ==========================================================================
@@ -288,63 +239,7 @@ class SudokuValidator {
       return false;
     }
 
-    // ------------------------------------------------------------------------
-    // ROWS
-    // ------------------------------------------------------------------------
-
-    for (int row = 0; row < gridSize; row++) {
-      final seen = <int>{};
-
-      for (int col = 0; col < gridSize; col++) {
-        final value = board[row][col];
-
-        if (value < emptyValue || value > maxValue) {
-          return false;
-        }
-
-        if (value != emptyValue && !seen.add(value)) {
-          return false;
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // COLUMNS
-    // ------------------------------------------------------------------------
-
-    for (int col = 0; col < gridSize; col++) {
-      final seen = <int>{};
-
-      for (int row = 0; row < gridSize; row++) {
-        final value = board[row][col];
-
-        if (value != emptyValue && !seen.add(value)) {
-          return false;
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // 3x3 BOXES
-    // ------------------------------------------------------------------------
-
-    for (int boxRow = 0; boxRow < gridSize; boxRow += boxSize) {
-      for (int boxCol = 0; boxCol < gridSize; boxCol += boxSize) {
-        final seen = <int>{};
-
-        for (int row = boxRow; row < boxRow + boxSize; row++) {
-          for (int col = boxCol; col < boxCol + boxSize; col++) {
-            final value = board[row][col];
-
-            if (value != emptyValue && !seen.add(value)) {
-              return false;
-            }
-          }
-        }
-      }
-    }
-
-    return true;
+    return _hasNoConflicts(board, requireComplete: false);
   }
 
   // ==========================================================================
@@ -356,10 +251,7 @@ class SudokuValidator {
   ///
   /// This is stricter than [isValidSolution].
   static bool matchesSolution(List<List<int>> board, List<List<int>> solution) {
-    if (!_isValidBoardShape(board) || !_isValidBoardShape(solution)) {
-      return false;
-    }
-
+    // isBoardComplete also validates the 9x9 shape.
     if (!isBoardComplete(board) || !isBoardComplete(solution)) {
       return false;
     }
@@ -369,6 +261,53 @@ class SudokuValidator {
         if (board[row][col] != solution[row][col]) {
           return false;
         }
+      }
+    }
+
+    return true;
+  }
+
+  // ==========================================================================
+  // CONFLICT SCAN
+  // ==========================================================================
+
+  /// One pass over a shape-valid board using bitmasks: bit `v` of
+  /// `rows[r]` / `cols[c]` / `boxes[b]` is set once value `v` has been seen in
+  /// that unit. A value seen twice in a unit is a conflict.
+  ///
+  /// With [requireComplete], any empty cell also fails.
+  static bool _hasNoConflicts(
+    List<List<int>> board, {
+    required bool requireComplete,
+  }) {
+    final rows = List<int>.filled(gridSize, 0);
+    final cols = List<int>.filled(gridSize, 0);
+    final boxes = List<int>.filled(gridSize, 0);
+
+    for (int row = 0; row < gridSize; row++) {
+      for (int col = 0; col < gridSize; col++) {
+        final value = board[row][col];
+
+        if (value == emptyValue) {
+          if (requireComplete) {
+            return false;
+          }
+
+          continue;
+        }
+
+        final bit = 1 << value;
+        final box = ((row ~/ boxSize) * boxSize) + (col ~/ boxSize);
+
+        if ((rows[row] & bit) != 0 ||
+            (cols[col] & bit) != 0 ||
+            (boxes[box] & bit) != 0) {
+          return false;
+        }
+
+        rows[row] |= bit;
+        cols[col] |= bit;
+        boxes[box] |= bit;
       }
     }
 

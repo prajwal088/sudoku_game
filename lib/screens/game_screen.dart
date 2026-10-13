@@ -555,6 +555,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
+    ///TODO: This is a sanity check. The board should always be valid if it is complete, but this is a safeguard against bugs or tampering.
     if (!SudokuValidator.isValidSolution(_board.board, _board.solution)) {
       return;
     }
