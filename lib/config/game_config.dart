@@ -33,7 +33,11 @@
 ///
 /// All campaign numbering is 1-based.
 ///
-/// Example:
+/// NOTE: The examples in this file use the production layout of 10 worlds with
+/// 25 levels each. The values currently configured below are smaller
+/// development values (see the TODO on [GameConfig.totalWorlds]).
+///
+/// Example (production layout):
 ///
 ///     World 1
 ///       ├── Level 1  -> Global 1
@@ -54,7 +58,6 @@
 /// unchecked helpers for the arithmetic, so composite operations (for example
 /// [getWorldAndLocalLevel]) do not re-validate the same value repeatedly.
 /// ============================================================================
-
 library;
 
 abstract final class GameConfig {
@@ -77,11 +80,16 @@ abstract final class GameConfig {
   /// First valid local level number inside a world.
   static const int minimumLocalLevel = 1;
 
-  ///TODO: chnage worlds and levels to 10 and 25 respectively
   /// Total number of worlds in the campaign.
+  ///
+  /// TODO(production): development value. Change to 10 worlds before release.
+  /// This must stay in sync with the number of puzzle sets/assets you ship and
+  /// with any saved progress (see ProgressService).
   static const int totalWorlds = 2;
 
   /// Number of levels contained in every world.
+  ///
+  /// TODO(production): development value. Change to 25 levels before release.
   static const int levelsPerWorld = 2;
 
   /// Total number of playable campaign levels.
@@ -110,9 +118,11 @@ abstract final class GameConfig {
   // GAMEPLAY LIMITS
   // ==========================================================================
 
-  /// TODO(production): this is a development value. Replace it with
-  /// `GameConfig.maximumHintsPerLevel` (or a player-inventory service) once
-  /// the hint economy is decided. Unlimited hints make the stars trivial.
+  /// Maximum number of hints usable in one level.
+  ///
+  /// TODO(production): development value. 1000 is effectively unlimited, which
+  /// makes hint-based star rules trivial. Replace it with the real limit (or a
+  /// player-inventory service) once the hint economy is decided.
   static const int maximumHintsPerLevel = 1000;
 
   /// Maximum number of mistakes permitted during one level.
@@ -253,7 +263,7 @@ abstract final class GameConfig {
 
   /// Returns the first global level belonging to [world].
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - World 1  -> 1
   /// - World 2  -> 26
   /// - World 3  -> 51
@@ -266,7 +276,7 @@ abstract final class GameConfig {
 
   /// Returns the last global level belonging to [world].
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - World 1  -> 25
   /// - World 2  -> 50
   /// - World 3  -> 75
@@ -279,7 +289,7 @@ abstract final class GameConfig {
 
   /// Converts a global level to its world number.
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - Global 1   -> World 1
   /// - Global 25  -> World 1
   /// - Global 26  -> World 2
@@ -293,7 +303,7 @@ abstract final class GameConfig {
 
   /// Converts a global level to its local level inside its world.
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - Global 1  -> Local 1
   /// - Global 25 -> Local 25
   /// - Global 26 -> Local 1
@@ -307,7 +317,7 @@ abstract final class GameConfig {
 
   /// Converts a world and local level into a global level.
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - World 1, Level 1  -> Global 1
   /// - World 1, Level 25 -> Global 25
   /// - World 2, Level 1  -> Global 26
@@ -326,7 +336,8 @@ abstract final class GameConfig {
   /// - `world`
   /// - `level`
   ///
-  /// Prefer the individual conversion methods when only one value is needed.
+  /// Prefer [splitGlobalLevel] in new code: it is type-safe and does not
+  /// allocate a map. This method is kept for backwards compatibility.
   static Map<String, int> getWorldAndLocalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
@@ -336,13 +347,26 @@ abstract final class GameConfig {
     };
   }
 
+  /// Returns the world and local level for [globalLevel] as a record.
+  ///
+  /// Example (production layout):
+  ///
+  /// ```dart
+  /// final (:world, :level) = GameConfig.splitGlobalLevel(55); // 3, 5
+  /// ```
+  static ({int world, int level}) splitGlobalLevel(int globalLevel) {
+    _validateGlobalLevel(globalLevel);
+
+    return (world: _worldOf(globalLevel), level: _localLevelOf(globalLevel));
+  }
+
   // ==========================================================================
   // WORLD COMPLETION
   // ==========================================================================
 
   /// Returns true when [globalLevel] is the final level of its world.
   ///
-  /// Examples:
+  /// Examples (production layout):
   /// - Level 25 -> true
   /// - Level 50 -> true
   /// - Level 75 -> true
@@ -417,7 +441,7 @@ abstract final class GameConfig {
 
   /// Returns the inclusive global-level range for [world].
   ///
-  /// Example for World 2:
+  /// Example for World 2 (production layout):
   ///
   ///     [26, 50]
   static List<int> getLevelRangeForWorld(int world) {
