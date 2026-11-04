@@ -19,46 +19,40 @@
 ///
 /// Player-specific state belongs to ProgressService.
 ///
-/// Architecture:
-///
-///     GameConfig
-///          │
-///          ├── LevelService
-///          ├── ProgressService
-///          ├── WorldManager
-///          ├── WorldMapScreen
-///          ├── LevelMapScreen
-///          ├── WinScreen
-///          └── GameService
-///
 /// All campaign numbering is 1-based.
 ///
-/// NOTE: The examples in this file use the production layout of 10 worlds with
-/// 25 levels each. The values currently configured below are smaller
-/// development values (see the TODO on [GameConfig.totalWorlds]).
+/// Each world defines its OWN number of levels (see [GameConfig.worlds]).
+/// Global level numbers run continuously across worlds, so the first level of
+/// a world is always the last level of the previous world + 1.
 ///
-/// Example (production layout):
+/// Example: worlds with 20, 25 and 30 levels
 ///
-///     World 1
-///       ├── Level 1  -> Global 1
-///       └── Level 25 -> Global 25
+///     World 1  -> Global 1  .. 20
+///     World 2  -> Global 21 .. 45
+///     World 3  -> Global 46 .. 75
 ///
-///     World 2
-///       ├── Level 1  -> Global 26
-///       └── Level 25 -> Global 50
-///
-///     World 3
-///       └── Level 5  -> Global 55
-///
-///     World 10
-///       └── Level 25 -> Global 250
+/// IMPORTANT: ProgressService stores progress by GLOBAL level number. After
+/// release, do not change the level count of an existing world, because that
+/// shifts every later level and breaks saved progress. Only add new worlds at
+/// the end of the list (or add levels to the last world).
 ///
 /// Implementation note:
 /// Public methods validate their arguments exactly once and then use private,
 /// unchecked helpers for the arithmetic, so composite operations (for example
-/// [getWorldAndLocalLevel]) do not re-validate the same value repeatedly.
+/// [splitGlobalLevel]) do not re-validate the same value repeatedly.
 /// ============================================================================
 library;
+
+/// Definition of one campaign world.
+final class WorldConfig {
+  /// Display name of the world (e.g. for the world map screen).
+  final String name;
+
+  /// Number of levels contained in this world. Must be greater than 0.
+  final int levels;
+
+  const WorldConfig(this.name, this.levels);
+}
 
 abstract final class GameConfig {
   // ==========================================================================
@@ -80,23 +74,62 @@ abstract final class GameConfig {
   /// First valid local level number inside a world.
   static const int minimumLocalLevel = 1;
 
-  /// Total number of worlds in the campaign.
+  /// The campaign layout: one entry per world, in order (first entry = world 1).
   ///
-  /// TODO(production): development value. Change to 10 worlds before release.
-  /// This must stay in sync with the number of puzzle sets/assets you ship and
-  /// with any saved progress (see ProgressService).
-  static const int totalWorlds = 2;
+  /// Edit ONLY this list to change how many worlds exist and how many levels
+  /// each world has. Everything else is derived from it.
+  ///
+  /// TODO(production): development layout below. Replace it with the real
+  /// layout before release. It must stay in sync with the puzzle sets/assets
+  /// you ship and with saved progress (see ProgressService).
+  ///
+  /// Tip: use collection-for to describe many worlds with the same size on a
+  /// single line, and write out special worlds individually. Example:
+  ///
+  /// ```dart
+  /// static final List<WorldConfig> worlds = List.unmodifiable(<WorldConfig>[
+  ///   WorldConfig('Meadow', 20),                                // world 1
+  ///   WorldConfig('Forest', 25),                                // world 2
+  ///   for (int i = 3; i <= 12; i++) WorldConfig('World $i', 30), // worlds 3-12
+  ///   for (int i = 13; i <= 50; i++) WorldConfig('World $i', 40), // 13-50
+  /// ]);
+  /// ```
+  static final List<WorldConfig> worlds = List<WorldConfig>.unmodifiable(
+    <WorldConfig>[
+      WorldConfig('World 1', 3), // world 1
+      WorldConfig('World 2', 3), // world 2
+      WorldConfig('World 3', 3), // world 3
+      WorldConfig('World 4', 3), // world 4
+    ],
+  );
 
-  /// Number of levels contained in every world.
-  ///
-  /// TODO(production): development value. Change to 25 levels before release.
-  static const int levelsPerWorld = 2;
+  /// Total number of worlds in the campaign.
+  static int get totalWorlds => worlds.length;
 
   /// Total number of playable campaign levels.
   ///
-  /// This value is derived from the campaign structure and must not be
-  /// maintained independently.
-  static const int totalLevels = totalWorlds * levelsPerWorld;
+  /// Derived from [worlds]; never maintain it independently.
+  /// NOTE: this is no longer a compile-time constant, so it cannot be used in
+  /// `const` expressions.
+  static final int totalLevels = _firstLevels.last - minimumLevel;
+
+  /// First global level of each world (index 0 = world 1), plus one final
+  /// sentinel entry equal to `totalLevels + 1`.
+  static final List<int> _firstLevels = _buildFirstLevels();
+
+  static List<int> _buildFirstLevels() {
+    final List<int> starts = <int>[];
+    int next = minimumLevel;
+
+    for (final WorldConfig world in worlds) {
+      starts.add(next);
+      next += world.levels;
+    }
+
+    starts.add(next); // Sentinel: one past the last level.
+
+    return List<int>.unmodifiable(starts);
+  }
 
   // ==========================================================================
   // STAR SYSTEM
@@ -108,11 +141,18 @@ abstract final class GameConfig {
   /// Maximum number of stars that can be awarded for one level.
   static const int maxStarsPerLevel = 3;
 
-  /// Maximum number of stars available in one world.
-  static const int maxStarsPerWorld = levelsPerWorld * maxStarsPerLevel;
-
   /// Maximum number of stars available across the complete campaign.
-  static const int maxStarsTotal = totalLevels * maxStarsPerLevel;
+  static final int maxStarsTotal = totalLevels * maxStarsPerLevel;
+
+  /// Maximum number of stars available in [world].
+  ///
+  /// Replaces the old constant `maxStarsPerWorld`, which only made sense when
+  /// every world had the same number of levels.
+  static int getMaxStarsForWorld(int world) {
+    _validateWorld(world);
+
+    return _levelCountOf(world) * maxStarsPerLevel;
+  }
 
   // ==========================================================================
   // GAMEPLAY LIMITS
@@ -137,8 +177,7 @@ abstract final class GameConfig {
   /// Validates the static configuration itself.
   ///
   /// Intended for startup assertions, tests, and diagnostics. It guards
-  /// against future edits (for example a derived value being replaced with a
-  /// hand-written literal that no longer matches the structure).
+  /// against editing mistakes in [worlds] and the other constants.
   ///
   /// Recommended usage (debug builds only, zero cost in release):
   ///
@@ -163,18 +202,34 @@ abstract final class GameConfig {
       throw StateError('GameConfig.minimumLocalLevel must equal 1.');
     }
 
-    if (totalWorlds <= 0) {
-      throw StateError('GameConfig.totalWorlds must be greater than 0.');
+    if (worlds.isEmpty) {
+      throw StateError('GameConfig.worlds must contain at least one world.');
     }
 
-    if (levelsPerWorld <= 0) {
-      throw StateError('GameConfig.levelsPerWorld must be greater than 0.');
+    int levelSum = 0;
+
+    for (int i = 0; i < worlds.length; i++) {
+      final WorldConfig world = worlds[i];
+
+      if (world.levels <= 0) {
+        throw StateError(
+          'GameConfig.worlds: world ${i + 1} (${world.name}) must have '
+          'more than 0 levels, but has ${world.levels}.',
+        );
+      }
+
+      levelSum += world.levels;
     }
 
-    if (totalLevels != totalWorlds * levelsPerWorld) {
+    if (totalLevels != levelSum) {
       throw StateError(
-        'GameConfig.totalLevels must equal totalWorlds * levelsPerWorld.',
+        'GameConfig.totalLevels ($totalLevels) must equal the sum of all '
+        'world level counts ($levelSum).',
       );
+    }
+
+    if (_firstLevels.length != worlds.length + 1) {
+      throw StateError('GameConfig internal level table is inconsistent.');
     }
 
     if (minStarsPerLevel < 0) {
@@ -196,13 +251,6 @@ abstract final class GameConfig {
     if (maximumMistakes != null && maximumMistakes < 0) {
       throw StateError(
         'GameConfig.maximumMistakesPerLevel cannot be negative.',
-      );
-    }
-
-    if (maxStarsPerWorld != levelsPerWorld * maxStarsPerLevel) {
-      throw StateError(
-        'GameConfig.maxStarsPerWorld is inconsistent '
-        'with the campaign configuration.',
       );
     }
 
@@ -228,9 +276,13 @@ abstract final class GameConfig {
     return world >= minimumWorld && world <= totalWorlds;
   }
 
-  /// Returns true when [localLevel] is valid inside a world.
-  static bool isValidLocalLevel(int localLevel) {
-    return localLevel >= minimumLocalLevel && localLevel <= levelsPerWorld;
+  /// Returns true when [localLevel] is valid inside [world].
+  ///
+  /// Now takes the world, because worlds can have different sizes.
+  static bool isValidLocalLevel(int world, int localLevel) {
+    return isValidWorld(world) &&
+        localLevel >= minimumLocalLevel &&
+        localLevel <= _levelCountOf(world);
   }
 
   /// Returns true when [stars] is within the configured star range.
@@ -261,13 +313,14 @@ abstract final class GameConfig {
   // WORLD / LEVEL CALCULATIONS
   // ==========================================================================
 
+  /// Returns the display name of [world].
+  static String getWorldName(int world) {
+    _validateWorld(world);
+
+    return worlds[world - minimumWorld].name;
+  }
+
   /// Returns the first global level belonging to [world].
-  ///
-  /// Examples (production layout):
-  /// - World 1  -> 1
-  /// - World 2  -> 26
-  /// - World 3  -> 51
-  /// - World 10 -> 226
   static int getFirstLevelForWorld(int world) {
     _validateWorld(world);
 
@@ -275,12 +328,6 @@ abstract final class GameConfig {
   }
 
   /// Returns the last global level belonging to [world].
-  ///
-  /// Examples (production layout):
-  /// - World 1  -> 25
-  /// - World 2  -> 50
-  /// - World 3  -> 75
-  /// - World 10 -> 250
   static int getLastLevelForWorld(int world) {
     _validateWorld(world);
 
@@ -288,13 +335,6 @@ abstract final class GameConfig {
   }
 
   /// Converts a global level to its world number.
-  ///
-  /// Examples (production layout):
-  /// - Global 1   -> World 1
-  /// - Global 25  -> World 1
-  /// - Global 26  -> World 2
-  /// - Global 55  -> World 3
-  /// - Global 250 -> World 10
   static int getWorldFromGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
@@ -302,30 +342,16 @@ abstract final class GameConfig {
   }
 
   /// Converts a global level to its local level inside its world.
-  ///
-  /// Examples (production layout):
-  /// - Global 1  -> Local 1
-  /// - Global 25 -> Local 25
-  /// - Global 26 -> Local 1
-  /// - Global 30 -> Local 5
-  /// - Global 55 -> Local 5
   static int getLocalLevelFromGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return _localLevelOf(globalLevel);
+    return _localLevelOf(globalLevel, _worldOf(globalLevel));
   }
 
   /// Converts a world and local level into a global level.
-  ///
-  /// Examples (production layout):
-  /// - World 1, Level 1  -> Global 1
-  /// - World 1, Level 25 -> Global 25
-  /// - World 2, Level 1  -> Global 26
-  /// - World 3, Level 5  -> Global 55
-  /// - World 10, Level 25 -> Global 250
   static int getGlobalLevel(int world, int localLevel) {
     _validateWorld(world);
-    _validateLocalLevel(localLevel);
+    _validateLocalLevel(world, localLevel);
 
     return _firstLevelOf(world) + (localLevel - minimumLocalLevel);
   }
@@ -341,23 +367,25 @@ abstract final class GameConfig {
   static Map<String, int> getWorldAndLocalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
+    final int world = _worldOf(globalLevel);
+
     return <String, int>{
-      'world': _worldOf(globalLevel),
-      'level': _localLevelOf(globalLevel),
+      'world': world,
+      'level': _localLevelOf(globalLevel, world),
     };
   }
 
   /// Returns the world and local level for [globalLevel] as a record.
   ///
-  /// Example (production layout):
-  ///
   /// ```dart
-  /// final (:world, :level) = GameConfig.splitGlobalLevel(55); // 3, 5
+  /// final (:world, :level) = GameConfig.splitGlobalLevel(55);
   /// ```
   static ({int world, int level}) splitGlobalLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return (world: _worldOf(globalLevel), level: _localLevelOf(globalLevel));
+    final int world = _worldOf(globalLevel);
+
+    return (world: world, level: _localLevelOf(globalLevel, world));
   }
 
   // ==========================================================================
@@ -365,16 +393,10 @@ abstract final class GameConfig {
   // ==========================================================================
 
   /// Returns true when [globalLevel] is the final level of its world.
-  ///
-  /// Examples (production layout):
-  /// - Level 25 -> true
-  /// - Level 50 -> true
-  /// - Level 75 -> true
-  /// - Level 26 -> false
   static bool completesWorld(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
-    return _localLevelOf(globalLevel) == levelsPerWorld;
+    return globalLevel == _lastLevelOf(_worldOf(globalLevel));
   }
 
   /// Returns true when [world] is the final configured world.
@@ -439,11 +461,7 @@ abstract final class GameConfig {
   // RANGE HELPERS
   // ==========================================================================
 
-  /// Returns the inclusive global-level range for [world].
-  ///
-  /// Example for World 2 (production layout):
-  ///
-  ///     [26, 50]
+  /// Returns the inclusive global-level range for [world] as `[first, last]`.
   static List<int> getLevelRangeForWorld(int world) {
     _validateWorld(world);
 
@@ -451,12 +469,10 @@ abstract final class GameConfig {
   }
 
   /// Returns the number of levels configured in [world].
-  ///
-  /// This currently always equals [levelsPerWorld].
   static int getLevelCountForWorld(int world) {
     _validateWorld(world);
 
-    return levelsPerWorld;
+    return _levelCountOf(world);
   }
 
   // ==========================================================================
@@ -469,14 +485,42 @@ abstract final class GameConfig {
   static String get summary {
     return 'GameConfig('
         'worlds: $totalWorlds, '
-        'levelsPerWorld: $levelsPerWorld, '
         'totalLevels: $totalLevels, '
         'starsPerLevel: $maxStarsPerLevel, '
-        'maxStarsPerWorld: $maxStarsPerWorld, '
         'maxStarsTotal: $maxStarsTotal, '
         'maximumHintsPerLevel: $maximumHintsPerLevel, '
         'maximumMistakesPerLevel: $maximumMistakesPerLevel'
         ')';
+  }
+
+  /// Returns a multi-line table of every world, its level count and its global
+  /// level range. Handy for checking a large layout at a glance:
+  ///
+  /// ```dart
+  /// debugPrint(GameConfig.layoutTable);
+  /// ```
+  ///
+  /// Example output:
+  ///
+  ///     World  1 (Meadow): 20 levels -> global 1-20
+  ///     World  2 (Forest): 25 levels -> global 21-45
+  ///     Total: 2 worlds, 45 levels
+  static String get layoutTable {
+    final StringBuffer buffer = StringBuffer();
+    final int widthOfWorldNumber = totalWorlds.toString().length;
+
+    for (int world = minimumWorld; world <= totalWorlds; world++) {
+      buffer.writeln(
+        'World ${world.toString().padLeft(widthOfWorldNumber)} '
+        '(${worlds[world - minimumWorld].name}): '
+        '${_levelCountOf(world)} levels -> '
+        'global ${_firstLevelOf(world)}-${_lastLevelOf(world)}',
+      );
+    }
+
+    buffer.write('Total: $totalWorlds worlds, $totalLevels levels');
+
+    return buffer.toString();
   }
 
   // ==========================================================================
@@ -488,20 +532,40 @@ abstract final class GameConfig {
   // exactly one place.
   // ==========================================================================
 
+  static int _levelCountOf(int world) {
+    return worlds[world - minimumWorld].levels;
+  }
+
   static int _firstLevelOf(int world) {
-    return ((world - minimumWorld) * levelsPerWorld) + minimumLevel;
+    return _firstLevels[world - minimumWorld];
   }
 
   static int _lastLevelOf(int world) {
-    return _firstLevelOf(world) + levelsPerWorld - 1;
+    // The next entry is the first level of the following world (or the
+    // sentinel for the final world).
+    return _firstLevels[world - minimumWorld + 1] - 1;
   }
 
+  /// Binary search: finds the last world whose first level is <= [globalLevel].
   static int _worldOf(int globalLevel) {
-    return ((globalLevel - minimumLevel) ~/ levelsPerWorld) + minimumWorld;
+    int low = 0;
+    int high = worlds.length - 1;
+
+    while (low < high) {
+      final int middle = (low + high + 1) >> 1;
+
+      if (_firstLevels[middle] <= globalLevel) {
+        low = middle;
+      } else {
+        high = middle - 1;
+      }
+    }
+
+    return low + minimumWorld;
   }
 
-  static int _localLevelOf(int globalLevel) {
-    return ((globalLevel - minimumLevel) % levelsPerWorld) + minimumLocalLevel;
+  static int _localLevelOf(int globalLevel, int world) {
+    return globalLevel - _firstLevelOf(world) + minimumLocalLevel;
   }
 
   // ==========================================================================
@@ -528,13 +592,13 @@ abstract final class GameConfig {
     }
   }
 
-  static void _validateLocalLevel(int localLevel) {
-    if (!isValidLocalLevel(localLevel)) {
+  static void _validateLocalLevel(int world, int localLevel) {
+    if (!isValidLocalLevel(world, localLevel)) {
       throw ArgumentError.value(
         localLevel,
         'localLevel',
-        'Local level must be between '
-            '$minimumLocalLevel and $levelsPerWorld.',
+        'Local level must be between $minimumLocalLevel and '
+            '${_levelCountOf(world)} for world $world.',
       );
     }
   }

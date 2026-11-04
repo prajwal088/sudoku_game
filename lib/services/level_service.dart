@@ -25,7 +25,8 @@ import '../services/puzzle_repository.dart';
 /// - Global level number is the canonical level identifier.
 /// - World/local level numbers are derived from the global level.
 /// - [GameConfig] owns static game configuration AND the world/level math.
-///   This service never re-implements it.
+///   Worlds can have different numbers of levels, so this service never
+///   re-implements that math.
 /// - [ProgressService] owns player progression and persistence.
 /// - [PuzzleRepository] owns predefined puzzle content.
 /// - [GameService] owns generated puzzle creation.
@@ -62,19 +63,28 @@ class LevelService {
   // ==========================================================================
 
   /// Number of worlds available in the campaign.
-  static const int totalWorlds = GameConfig.totalWorlds;
-
-  /// Number of levels contained in each world.
-  static const int levelsPerWorld = GameConfig.levelsPerWorld;
+  ///
+  /// A getter (not a constant): the layout lives in [GameConfig.worlds].
+  static int get totalWorlds => GameConfig.totalWorlds;
 
   /// Total number of campaign levels.
-  static const int totalLevels = GameConfig.totalLevels;
+  ///
+  /// A getter (not a constant): derived from [GameConfig.worlds].
+  static int get totalLevels => GameConfig.totalLevels;
 
   /// First valid global level.
   static const int minimumLevel = GameConfig.minimumLevel;
 
   /// First valid world.
   static const int minimumWorld = GameConfig.minimumWorld;
+
+  /// Number of levels contained in [world].
+  ///
+  /// Replaces the old `levelsPerWorld` constant: worlds can now have
+  /// different numbers of levels.
+  int getLevelCountForWorld(int world) {
+    return GameConfig.getLevelCountForWorld(world);
+  }
 
   // ==========================================================================
   // DIFFICULTY TIERS
@@ -83,25 +93,30 @@ class LevelService {
   /// One table drives the difficulty label, the fallback puzzle's empty-cell
   /// count and the target time, so they can never drift apart.
   ///
-  /// Tiers are expressed per world:
-  /// - World 1       -> Easy   (global levels 1-25)
-  /// - Worlds 2-3    -> Medium (26-75)
-  /// - Worlds 4-6    -> Hard   (76-150)
-  /// - Worlds 7-10   -> Expert (151-250)
-  static const List<_DifficultyTier> _difficultyTiers = <_DifficultyTier>[
-    _DifficultyTier(
+  /// Tiers are expressed per WORLD number, so they do not depend on how many
+  /// levels each world has:
+  /// - World 1       -> Easy
+  /// - Worlds 2-3    -> Medium
+  /// - Worlds 4-6    -> Hard
+  /// - Worlds 7+     -> Expert (up to the last configured world)
+  ///
+  /// TODO(production): adjust the `lastWorld` values to match your final
+  /// [GameConfig.worlds] layout. Any world after the last listed tier uses
+  /// the final tier.
+  static final List<_DifficultyTier> _difficultyTiers = <_DifficultyTier>[
+    const _DifficultyTier(
       lastWorld: 1,
       label: 'Easy',
       emptyCells: 35,
       targetTimeSeconds: 300,
     ),
-    _DifficultyTier(
+    const _DifficultyTier(
       lastWorld: 3,
       label: 'Medium',
       emptyCells: 45,
       targetTimeSeconds: 450,
     ),
-    _DifficultyTier(
+    const _DifficultyTier(
       lastWorld: 6,
       label: 'Hard',
       emptyCells: 50,
@@ -141,13 +156,13 @@ class LevelService {
 
   /// Converts a global level number to its world number.
   ///
-  /// Examples with 25 levels per world:
+  /// Examples with worlds of 20, 25 and 30 levels:
   ///
   /// ```text
-  /// Global 1   -> World 1
-  /// Global 25  -> World 1
-  /// Global 26  -> World 2
-  /// Global 250 -> World 10
+  /// Global 1  -> World 1
+  /// Global 20 -> World 1
+  /// Global 21 -> World 2
+  /// Global 46 -> World 3
   /// ```
   int getWorldFromGlobalLevel(int globalLevel) {
     return GameConfig.getWorldFromGlobalLevel(globalLevel);
@@ -156,10 +171,10 @@ class LevelService {
   /// Converts a global level number to its local level number within its world.
   ///
   /// ```text
-  /// Global 1   -> Local 1
-  /// Global 26  -> Local 1
-  /// Global 55  -> Local 5
-  /// Global 250 -> Local 25
+  /// Global 1  -> Local 1
+  /// Global 21 -> Local 1
+  /// Global 25 -> Local 5
+  /// Global 46 -> Local 1
   /// ```
   int getLocalLevelFromGlobalLevel(int globalLevel) {
     return GameConfig.getLocalLevelFromGlobalLevel(globalLevel);
@@ -168,10 +183,10 @@ class LevelService {
   /// Converts a world number and local level number into a global level.
   ///
   /// ```text
-  /// World 1, Level 1   -> Global 1
-  /// World 2, Level 1   -> Global 26
-  /// World 3, Level 5   -> Global 55
-  /// World 10, Level 25 -> Global 250
+  /// World 1, Level 1  -> Global 1
+  /// World 2, Level 1  -> Global 21
+  /// World 2, Level 5  -> Global 25
+  /// World 3, Level 1  -> Global 46
   /// ```
   int getGlobalLevel(int world, int localLevel) {
     return GameConfig.getGlobalLevel(world, localLevel);
@@ -180,15 +195,16 @@ class LevelService {
   /// Returns both world and local level information for a global level.
   ///
   /// ```dart
-  /// final result = levelService.getWorldAndLocalLevel(55);
-  /// result.world       // 3
+  /// final result = levelService.getWorldAndLocalLevel(25);
+  /// result.world       // 2
   /// result.localLevel  // 5
   /// ```
   ({int world, int localLevel}) getWorldAndLocalLevel(int globalLevel) {
-    return (
-      world: GameConfig.getWorldFromGlobalLevel(globalLevel),
-      localLevel: GameConfig.getLocalLevelFromGlobalLevel(globalLevel),
+    final ({int world, int level}) position = GameConfig.splitGlobalLevel(
+      globalLevel,
     );
+
+    return (world: position.world, localLevel: position.level);
   }
 
   // ==========================================================================
@@ -210,9 +226,10 @@ class LevelService {
   /// This method returns the range only; it does not load puzzle data.
   List<int> getGlobalLevelsForWorld(int world) {
     final int firstLevel = GameConfig.getFirstLevelForWorld(world);
+    final int levelCount = GameConfig.getLevelCountForWorld(world);
 
     return List<int>.generate(
-      GameConfig.levelsPerWorld,
+      levelCount,
       (int index) => firstLevel + index,
     );
   }
@@ -222,18 +239,24 @@ class LevelService {
     return GameConfig.completesWorld(globalLevel);
   }
 
-  /// Returns true when [localLevel] is the final level within its world.
-  bool isLastLevelInWorld(int localLevel) {
-    if (!GameConfig.isValidLocalLevel(localLevel)) {
+  /// Returns true when [localLevel] is the final level within [world].
+  ///
+  /// Takes the world because worlds can have different numbers of levels.
+  bool isLastLevelInWorld(int world, int localLevel) {
+    // Validates the world (throws ArgumentError when out of range).
+    final int levelCount = GameConfig.getLevelCountForWorld(world);
+
+    if (!GameConfig.isValidLocalLevel(world, localLevel)) {
       throw ArgumentError.value(
         localLevel,
         'localLevel',
         'Local level must be between '
-            '${GameConfig.minimumLocalLevel} and ${GameConfig.levelsPerWorld}.',
+            '${GameConfig.minimumLocalLevel} and $levelCount '
+            'for world $world.',
       );
     }
 
-    return localLevel == GameConfig.levelsPerWorld;
+    return localLevel == levelCount;
   }
 
   // ==========================================================================
