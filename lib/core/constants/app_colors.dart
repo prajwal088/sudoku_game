@@ -12,7 +12,7 @@ abstract final class AppColors {
   // --------------------------------------------------------------------------
 
   /// Brand green (Material Green 500).
-  static const Color primary = Color(0xFF4CAF50);
+  static const Color primary = Colors.blue;
 
   /// Scaffold background (light gray).
   static const Color background = Color(0xFFF5F5F5);

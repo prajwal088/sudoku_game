@@ -24,11 +24,14 @@ import '../services/progress_service.dart';
 /// - GameScreen is responsible for saving progress BEFORE opening this screen.
 ///   Replay detection below relies on that ordering.
 /// - ProgressService is the source of truth for progression.
+/// - GameConfig is the source of truth for the campaign layout (worlds can
+///   have different numbers of levels).
 /// - WinScreen is responsible for presentation and navigation.
 ///
 /// Level architecture:
 /// - A level has ONE identity: [levelNumber].
-/// - World and local level numbers are derived from [levelNumber].
+/// - World and local level numbers are derived from [levelNumber] using
+///   GameConfig, so they always match the configured world sizes.
 ///
 /// Navigation architecture:
 /// - Next level / replay replace WinScreen with GameScreen.
@@ -125,9 +128,7 @@ class _WinScreenState extends State<WinScreen>
   int get _safeStars => widget.stars.clamp(0, _maxStars);
 
   /// Whether the supplied level number is valid.
-  bool get _isValidLevel =>
-      widget.levelNumber >= GameConfig.minimumLevel &&
-      widget.levelNumber <= GameConfig.totalLevels;
+  bool get _isValidLevel => GameConfig.isValidGlobalLevel(widget.levelNumber);
 
   /// Whether this completion represents a genuine world completion.
   ///
@@ -135,7 +136,8 @@ class _WinScreenState extends State<WinScreen>
   bool get _isWorldComplete => _isLastLevel && !_isReplay;
 
   /// Whether the completed world is the final configured world.
-  bool get _isFinalWorld => _world == GameConfig.totalWorlds;
+  bool get _isFinalWorld =>
+      _isValidLevel && GameConfig.isFinalWorld(_world);
 
   String get _title {
     if (!_isWorldComplete) {
@@ -203,11 +205,17 @@ class _WinScreenState extends State<WinScreen>
   /// Derives world / local level once instead of calling the service on
   /// every build. Everything here is synchronous, so the layout (title,
   /// buttons) is correct from the very first frame.
+  ///
+  /// Uses GameConfig directly: worlds can have different numbers of levels,
+  /// and GameConfig is the single place that knows the layout.
   void _setUpLevelData() {
     if (_isValidLevel) {
-      _world = _progressService.getWorldFromGlobal(widget.levelNumber);
-      _levelInWorld = _progressService.getLevelInWorld(widget.levelNumber);
-      _isLastLevel = _levelInWorld == GameConfig.levelsPerWorld;
+      final ({int world, int level}) position =
+          GameConfig.splitGlobalLevel(widget.levelNumber);
+
+      _world = position.world;
+      _levelInWorld = position.level;
+      _isLastLevel = GameConfig.completesWorld(widget.levelNumber);
     } else {
       _world = 0;
       _levelInWorld = 0;
@@ -312,9 +320,9 @@ class _WinScreenState extends State<WinScreen>
       return;
     }
 
-    final int nextLevel = widget.levelNumber + 1;
+    final int? nextLevel = GameConfig.getNextGlobalLevel(widget.levelNumber);
 
-    if (nextLevel > GameConfig.totalLevels) {
+    if (nextLevel == null) {
       _showMessage('You have completed all available levels!');
       return;
     }
@@ -351,7 +359,7 @@ class _WinScreenState extends State<WinScreen>
   ///
   /// Example: Home -> Level Map -> Game -> Win  becomes  Level Map.
   void _replaceWithLevelMap(int world) {
-    if (!_isValidWorldNumber(world)) {
+    if (!GameConfig.isValidWorld(world)) {
       return;
     }
 
@@ -399,15 +407,6 @@ class _WinScreenState extends State<WinScreen>
         ),
       );
     });
-  }
-
-  // ==========================================================================
-  // VALIDATION
-  // ==========================================================================
-
-  bool _isValidWorldNumber(int world) {
-    return world >= GameConfig.minimumWorld &&
-        world <= GameConfig.totalWorlds;
   }
 
   // ==========================================================================

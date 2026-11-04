@@ -26,7 +26,9 @@ import '../config/game_config.dart';
 /// - Local persistence
 ///
 /// Architecture:
-/// - [GameConfig] owns all static game configuration and gameplay rules.
+/// - [GameConfig] owns all static game configuration and gameplay rules,
+///   including the campaign layout. Worlds can have different numbers of
+///   levels, so every world/level calculation goes through [GameConfig].
 /// - Global level is the canonical level identifier.
 /// - World and local level are derived from the global level.
 /// - [completedLevels] is the authoritative progression state.
@@ -39,6 +41,11 @@ import '../config/game_config.dart';
 ///   directly (read-only) to avoid copying on every query.
 /// - All Future-returning APIs report errors through the returned Future
 ///   (never by throwing synchronously).
+///
+/// IMPORTANT (after release):
+/// Progress is stored by GLOBAL level number. Do not change the level count of
+/// an existing world in [GameConfig.worlds] once players have saved progress,
+/// because that shifts every later level. Only add new worlds at the end.
 ///
 /// This service does NOT:
 /// - Own static game configuration.
@@ -96,14 +103,11 @@ class ProgressService {
   // These getters preserve the existing public API used by older callers
   // while ensuring ProgressService does not own duplicate configuration.
   //
+  // The old `levelsPerWorld` getter was removed: worlds can now have different
+  // numbers of levels, so use GameConfig.getLevelCountForWorld(world).
+  //
   // New code should prefer GameConfig directly.
   // ==========================================================================
-
-  /// Number of levels contained in one world.
-  ///
-  /// Deprecated: use [GameConfig.levelsPerWorld].
-  @Deprecated('Use GameConfig.levelsPerWorld instead.')
-  static int get levelsPerWorld => GameConfig.levelsPerWorld;
 
   /// Number of worlds contained in the game.
   ///
@@ -428,8 +432,9 @@ class ProgressService {
   /// Derives the highest unlocked world from completed world boundaries.
   ///
   /// World 1 is always unlocked. World N + 1 unlocks when the final level of
-  /// World N is completed. There is no world after the final world, so
-  /// completing it does not change this value.
+  /// World N is completed (each world can have a different number of levels,
+  /// so the final level comes from [GameConfig]). There is no world after the
+  /// final world, so completing it does not change this value.
   int _deriveHighestUnlockedWorld(Set<int> completedLevels) {
     int highestWorld = GameConfig.minimumWorld;
 
@@ -504,14 +509,17 @@ class ProgressService {
 
   /// Converts a world + local level into a global level.
   ///
-  /// Examples:
+  /// The local level must be valid for that specific world (worlds can have
+  /// different numbers of levels).
+  ///
+  /// Example with worlds of 20, 25 and 30 levels:
   /// - World 1, Level 1  -> Global 1
-  /// - World 1, Level 25 -> Global 25
-  /// - World 2, Level 1  -> Global 26
-  /// - World 10, Level 25 -> Global 250
+  /// - World 1, Level 20 -> Global 20
+  /// - World 2, Level 1  -> Global 21
+  /// - World 3, Level 1  -> Global 46
   int getGlobalLevel(int world, int level) {
     _validateWorld(world);
-    _validateLocalLevel(level);
+    _validateLocalLevel(world, level);
 
     return GameConfig.getGlobalLevel(world, level);
   }
@@ -534,9 +542,13 @@ class ProgressService {
   Map<String, int> getWorldAndLevel(int globalLevel) {
     _validateGlobalLevel(globalLevel);
 
+    final ({int world, int level}) position = GameConfig.splitGlobalLevel(
+      globalLevel,
+    );
+
     return <String, int>{
-      'world': GameConfig.getWorldFromGlobalLevel(globalLevel),
-      'level': GameConfig.getLocalLevelFromGlobalLevel(globalLevel),
+      'world': position.world,
+      'level': position.level,
     };
   }
 
@@ -649,15 +661,14 @@ class ProgressService {
       // ----------------------------------------------------------------------
 
       final int world = GameConfig.getWorldFromGlobalLevel(globalLevel);
-      final int localLevel = GameConfig.getLocalLevelFromGlobalLevel(
-        globalLevel,
-      );
 
       // Levels are completed sequentially, so finishing a world's last level
       // for the first time means the whole world is now complete. This is
       // true for the final world as well (which unlocks no further world).
+      // GameConfig knows each world's size, so this works when worlds have
+      // different numbers of levels.
       final bool isNewWorldCompletion =
-          !wasAlreadyCompleted && localLevel == GameConfig.levelsPerWorld;
+          !wasAlreadyCompleted && GameConfig.completesWorld(globalLevel);
 
       final Map<String, dynamic> updatedProgress = <String, dynamic>{
         'version': _progressVersion,
@@ -933,14 +944,17 @@ class ProgressService {
     }
   }
 
-  void _validateLocalLevel(int level) {
-    if (!GameConfig.isValidLocalLevel(level)) {
+  /// Validates a local level for [world]. The world must already be valid
+  /// (call [_validateWorld] first), because the allowed range depends on it.
+  void _validateLocalLevel(int world, int level) {
+    if (!GameConfig.isValidLocalLevel(world, level)) {
       throw ArgumentError.value(
         level,
         'level',
         'Level must be between '
             '${GameConfig.minimumLocalLevel} '
-            'and ${GameConfig.levelsPerWorld}.',
+            'and ${GameConfig.getLevelCountForWorld(world)} '
+            'for world $world.',
       );
     }
   }

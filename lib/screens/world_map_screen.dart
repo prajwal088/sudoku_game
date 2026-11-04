@@ -32,6 +32,8 @@ import '../widgets/world_tile.dart';
 /// - There is no local/global level conversion in this screen.
 /// - Route definitions belong to navigation.dart.
 /// - Game configuration belongs to GameConfig.
+/// - Worlds can have different numbers of levels, so the maximum stars of a
+///   world is looked up per world (GameConfig.getMaxStarsForWorld).
 /// ============================================================================
 
 class WorldMapScreen extends StatefulWidget {
@@ -242,19 +244,19 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
       final int world = GameConfig.minimumWorld + index;
       final bool isLocked = world > highestUnlockedWorld;
 
+      // Worlds can have different sizes, so the maximum is per world.
+      final int maxStars = GameConfig.getMaxStarsForWorld(world);
+
       final int starsEarned = isLocked
           ? 0
-          : _clampInt(
-              starsPerWorld[world] ?? 0,
-              0,
-              GameConfig.maxStarsPerWorld,
-            );
+          : _clampInt(starsPerWorld[world] ?? 0, 0, maxStars);
 
       return _WorldEntry(
         worldNumber: world,
         isLocked: isLocked,
         starsEarned: starsEarned,
-        color: _getWorldColor(isLocked, starsEarned),
+        maxStars: maxStars,
+        color: _getWorldColor(isLocked, starsEarned, maxStars),
       );
     }, growable: false);
   }
@@ -275,12 +277,12 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
   // WORLD COLOR
   // ==========================================================================
 
-  Color _getWorldColor(bool isLocked, int starsEarned) {
+  Color _getWorldColor(bool isLocked, int starsEarned, int maxStars) {
     if (isLocked) {
       return Colors.grey.shade300;
     }
 
-    if (starsEarned >= GameConfig.maxStarsPerWorld) {
+    if (starsEarned >= maxStars) {
       return Colors.green.shade400;
     }
 
@@ -438,10 +440,11 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
             worldNumber: world.worldNumber,
             isLocked: world.isLocked,
             starsEarned: world.starsEarned,
-            totalStars: GameConfig.maxStarsPerWorld,
+            totalStars: world.maxStars,
             color: world.color,
             onTap: () => _onWorldTap(world.worldNumber),
-            onLockedTap: () => _onWorldTap(world.worldNumber), // shows the locked message
+            // Shows the "locked" message.
+            onLockedTap: () => _onWorldTap(world.worldNumber),
           );
         },
       ),
@@ -501,12 +504,16 @@ class _WorldEntry {
   final int worldNumber;
   final bool isLocked;
   final int starsEarned;
+
+  /// Maximum stars available in this world (levels in world * max per level).
+  final int maxStars;
   final Color color;
 
   const _WorldEntry({
     required this.worldNumber,
     required this.isLocked,
     required this.starsEarned,
+    required this.maxStars,
     required this.color,
   });
 }

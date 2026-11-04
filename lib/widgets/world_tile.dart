@@ -41,7 +41,11 @@ class WorldTile extends StatefulWidget {
   /// Stars earned in this world
   final int? starsEarned;
 
-  /// Total stars possible (typically levelsPerWorld * 3)
+  /// Total stars possible in this world.
+  ///
+  /// Worlds can have different numbers of levels, so the parent supplies this
+  /// per world (GameConfig.getMaxStarsForWorld(world)), i.e. the world's level
+  /// count * the maximum stars per level.
   final int? totalStars;
 
   /// Optional theme color
