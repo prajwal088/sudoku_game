@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:sudoku_game/config/game_config.dart';
 
+import '../config/game_config.dart';
 import '../logic/sudoku_validator.dart';
 import '../models/level.dart';
 import '../models/sudoku_board.dart';
@@ -71,6 +71,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // ==========================================================================
 
   late SudokuBoard _board;
+
+  /// The level as it was when this screen opened. [Level.isCompleted] is
+  /// therefore the state BEFORE this play-through, which is exactly what is
+  /// needed to tell a replay from a first completion.
   late Level _level;
 
   // ==========================================================================
@@ -98,7 +102,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Hinted cells cannot be manually changed afterward.
   final Set<String> _hintedCells = <String>{};
 
-  /// the hint economy is decided. Unlimited hints make the stars trivial.
+  /// Hints available per level.
   static const int _initialHints = GameConfig.maximumHintsPerLevel;
 
   int _hintsRemaining = _initialHints;
@@ -555,7 +559,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
-    ///TODO: This is a sanity check. The board should always be valid if it is complete, but this is a safeguard against bugs or tampering.
+    // TODO: This is a sanity check. The board should always be valid if it is
+    // complete, but this is a safeguard against bugs or tampering.
     if (!SudokuValidator.isValidSolution(_board.board, _board.solution)) {
       return;
     }
@@ -647,6 +652,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
+    // Whether this was a replay is known from the level state captured when
+    // the screen opened (before completeLevel changed anything). Passing it
+    // to WinScreen avoids guessing from progress afterwards, so replaying a
+    // world's last level never shows "World Complete!" again.
+    final bool isReplay = _level.isCompleted;
+
     unawaited(
       Navigator.pushReplacement(
         context,
@@ -656,6 +667,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               levelNumber: widget.levelNumber,
               stars: stars,
               time: _formatTime(seconds),
+              isReplay: isReplay,
             );
           },
         ),

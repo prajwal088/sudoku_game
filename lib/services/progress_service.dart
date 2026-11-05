@@ -103,9 +103,6 @@ class ProgressService {
   // These getters preserve the existing public API used by older callers
   // while ensuring ProgressService does not own duplicate configuration.
   //
-  // The old `levelsPerWorld` getter was removed: worlds can now have different
-  // numbers of levels, so use GameConfig.getLevelCountForWorld(world).
-  //
   // New code should prefer GameConfig directly.
   // ==========================================================================
 

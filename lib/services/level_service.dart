@@ -18,15 +18,17 @@ import '../services/puzzle_repository.dart';
 /// - Retrieve puzzle/solution data from [PuzzleRepository].
 /// - Generate a safe fallback puzzle when repository data is unavailable.
 /// - Apply persisted progress information to level metadata.
-/// - Provide difficulty and target time per level.
+/// - Apply the difficulty and target time defined in [GameConfig] to each
+///   level.
 /// - Delegate level completion persistence to [ProgressService].
 ///
 /// Architecture:
 /// - Global level number is the canonical level identifier.
 /// - World/local level numbers are derived from the global level.
-/// - [GameConfig] owns static game configuration AND the world/level math.
-///   Worlds can have different numbers of levels, so this service never
-///   re-implements that math.
+/// - [GameConfig] owns static game configuration, the world/level math AND
+///   the difficulty of every level (see `GameConfig.worlds` and
+///   `GameConfig.difficultyProfiles`). This service never re-implements or
+///   duplicates any of it.
 /// - [ProgressService] owns player progression and persistence.
 /// - [PuzzleRepository] owns predefined puzzle content.
 /// - [GameService] owns generated puzzle creation.
@@ -35,6 +37,7 @@ import '../services/puzzle_repository.dart';
 /// - Persist player progress directly.
 /// - Store completed levels, stars or best times.
 /// - Own puzzle content.
+/// - Define difficulty (that is [GameConfig]'s job).
 ///
 /// IMPORTANT:
 /// [ProgressService.init] must be called during application startup before
@@ -80,65 +83,14 @@ class LevelService {
 
   /// Number of levels contained in [world].
   ///
-  /// Replaces the old `levelsPerWorld` constant: worlds can now have
-  /// different numbers of levels.
+  /// worlds can now have different numbers of levels.
   int getLevelCountForWorld(int world) {
     return GameConfig.getLevelCountForWorld(world);
   }
 
   // ==========================================================================
-  // DIFFICULTY TIERS
+  // DIFFICULTY
   // ==========================================================================
-
-  /// One table drives the difficulty label, the fallback puzzle's empty-cell
-  /// count and the target time, so they can never drift apart.
-  ///
-  /// Tiers are expressed per WORLD number, so they do not depend on how many
-  /// levels each world has:
-  /// - World 1       -> Easy
-  /// - Worlds 2-3    -> Medium
-  /// - Worlds 4-6    -> Hard
-  /// - Worlds 7+     -> Expert (up to the last configured world)
-  ///
-  /// TODO(production): adjust the `lastWorld` values to match your final
-  /// [GameConfig.worlds] layout. Any world after the last listed tier uses
-  /// the final tier.
-  static final List<_DifficultyTier> _difficultyTiers = <_DifficultyTier>[
-    const _DifficultyTier(
-      lastWorld: 1,
-      label: 'Easy',
-      emptyCells: 35,
-      targetTimeSeconds: 300,
-    ),
-    const _DifficultyTier(
-      lastWorld: 3,
-      label: 'Medium',
-      emptyCells: 45,
-      targetTimeSeconds: 450,
-    ),
-    const _DifficultyTier(
-      lastWorld: 6,
-      label: 'Hard',
-      emptyCells: 50,
-      targetTimeSeconds: 600,
-    ),
-    _DifficultyTier(
-      lastWorld: GameConfig.totalWorlds,
-      label: 'Expert',
-      emptyCells: 55,
-      targetTimeSeconds: 900,
-    ),
-  ];
-
-  static _DifficultyTier _tierForWorld(int world) {
-    for (final _DifficultyTier tier in _difficultyTiers) {
-      if (world <= tier.lastWorld) {
-        return tier;
-      }
-    }
-
-    return _difficultyTiers.last;
-  }
 
   /// True in debug/profile builds (asserts enabled), false in release.
   static final bool _assertsEnabled = () {
@@ -149,6 +101,13 @@ class LevelService {
     }());
     return enabled;
   }();
+
+  /// Returns the player-facing difficulty label of [globalLevel].
+  ///
+  /// Difficulty is configured per level group in [GameConfig.worlds].
+  String getDifficultyLabel(int globalLevel) {
+    return GameConfig.getDifficultyLabelForLevel(globalLevel);
+  }
 
   // ==========================================================================
   // GLOBAL LEVEL <-> WORLD / LOCAL LEVEL
@@ -228,10 +187,7 @@ class LevelService {
     final int firstLevel = GameConfig.getFirstLevelForWorld(world);
     final int levelCount = GameConfig.getLevelCountForWorld(world);
 
-    return List<int>.generate(
-      levelCount,
-      (int index) => firstLevel + index,
-    );
+    return List<int>.generate(levelCount, (int index) => firstLevel + index);
   }
 
   /// Returns true when [globalLevel] is the final level of its world.
@@ -389,22 +345,25 @@ class LevelService {
   /// Builds a [Level] from puzzle data plus the progress snapshot.
   ///
   /// Shared by [getLevel] and [getLevelsByWorld] so both always produce
-  /// identical metadata.
+  /// identical metadata. Difficulty comes from the level group the level
+  /// belongs to in [GameConfig.worlds].
   Level _buildLevel(int globalLevel, int world, _ProgressSnapshot progress) {
-    final _DifficultyTier tier = _tierForWorld(world);
-    final _PuzzleData puzzle = _loadPuzzle(globalLevel, tier);
+    final DifficultyProfile profile = GameConfig.getProfileForLevel(
+      globalLevel,
+    );
+    final _PuzzleData puzzle = _loadPuzzle(globalLevel, profile);
 
     return Level(
       levelNumber: globalLevel,
       world: world,
-      difficulty: tier.label,
+      difficulty: profile.label,
       puzzle: puzzle.puzzle,
       solution: puzzle.solution,
       isLocked: globalLevel > progress.currentLevel,
       isCompleted: progress.completedLevels.contains(globalLevel),
       stars: progress.stars[globalLevel] ?? 0,
       bestTime: progress.bestTimes[globalLevel] ?? 0,
-      targetTime: tier.targetTimeSeconds,
+      targetTime: profile.targetTimeSeconds,
     );
   }
 
@@ -418,7 +377,7 @@ class LevelService {
   /// - In debug/profile builds the error is rethrown so it is caught early.
   /// - In release builds it is logged and a generated puzzle is used, so one
   ///   bad entry cannot make an entire world impossible to open.
-  _PuzzleData _loadPuzzle(int globalLevel, _DifficultyTier tier) {
+  _PuzzleData _loadPuzzle(int globalLevel, DifficultyProfile profile) {
     final Map<String, dynamic>? repositoryData = _puzzleRepository
         .getPuzzleForLevel(globalLevel);
 
@@ -447,10 +406,13 @@ class LevelService {
     //
     // The repository should normally contain every campaign puzzle.
     // Generation exists so a missing/invalid content entry does not make the
-    // game unusable.
+    // game unusable. The empty-cell count comes from the level's difficulty
+    // profile in GameConfig.
     // ------------------------------------------------------------------------
 
-    final generatedBoard = _gameService.newGame(emptyCells: tier.emptyCells);
+    final generatedBoard = _gameService.newGame(
+      emptyCells: profile.emptyCells,
+    );
 
     return _PuzzleData(
       puzzle: _cloneGrid(generatedBoard.puzzle),
@@ -614,26 +576,6 @@ class LevelService {
 // INTERNAL TYPES
 // ============================================================================
 
-/// Difficulty settings shared by label, fallback generation and target time.
-class _DifficultyTier {
-  /// Highest world (inclusive) that uses this tier.
-  final int lastWorld;
-
-  final String label;
-
-  /// Empty cells used when generating a fallback puzzle.
-  final int emptyCells;
-
-  final int targetTimeSeconds;
-
-  const _DifficultyTier({
-    required this.lastWorld,
-    required this.label,
-    required this.emptyCells,
-    required this.targetTimeSeconds,
-  });
-}
-
 /// Internal immutable container for puzzle and solution grids.
 class _PuzzleData {
   final List<List<int>> puzzle;
@@ -683,10 +625,7 @@ class _ProgressSnapshot {
       return <int>{};
     }
 
-    return raw
-        .whereType<int>()
-        .where(GameConfig.isValidGlobalLevel)
-        .toSet();
+    return raw.whereType<int>().where(GameConfig.isValidGlobalLevel).toSet();
   }
 
   /// Safely converts a persisted map into a level -> int map.

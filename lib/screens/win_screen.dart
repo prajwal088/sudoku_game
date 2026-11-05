@@ -22,7 +22,9 @@ import '../services/progress_service.dart';
 ///
 /// Architecture:
 /// - GameScreen is responsible for saving progress BEFORE opening this screen.
-///   Replay detection below relies on that ordering.
+/// - GameScreen also tells this screen whether the level was a replay
+///   ([isReplay]), captured BEFORE the completion was saved. When it is not
+///   supplied, the screen falls back to inferring it from saved progress.
 /// - ProgressService is the source of truth for progression.
 /// - GameConfig is the source of truth for the campaign layout (worlds can
 ///   have different numbers of levels).
@@ -30,8 +32,8 @@ import '../services/progress_service.dart';
 ///
 /// Level architecture:
 /// - A level has ONE identity: [levelNumber].
-/// - World and local level numbers are derived from [levelNumber] using
-///   GameConfig, so they always match the configured world sizes.
+/// - The world number is derived from [levelNumber] using GameConfig, so it
+///   always matches the configured world sizes.
 ///
 /// Navigation architecture:
 /// - Next level / replay replace WinScreen with GameScreen.
@@ -59,11 +61,20 @@ class WinScreen extends StatefulWidget {
   /// Formatted completion time.
   final String time;
 
+  /// Whether this level had already been completed before this play-through.
+  ///
+  /// Supplied by GameScreen from the level state captured when the level
+  /// opened. This is exact, including for the last level of a world and of the
+  /// whole game. When null, the screen infers it from saved progress (which
+  /// cannot detect a replay of the final level).
+  final bool? isReplay;
+
   const WinScreen({
     super.key,
     required this.levelNumber,
     required this.stars,
     required this.time,
+    this.isReplay,
   });
 
   @override
@@ -106,7 +117,6 @@ class _WinScreenState extends State<WinScreen>
   // --------------------------------------------------------------------------
 
   late final int _world;
-  late final int _levelInWorld;
   late final bool _isLastLevel;
 
   // --------------------------------------------------------------------------
@@ -166,7 +176,13 @@ class _WinScreenState extends State<WinScreen>
     _setUpLevelData();
     _setUpAnimations();
 
-    if (_isValidLevel) {
+    final bool? knownReplay = widget.isReplay;
+
+    if (knownReplay != null) {
+      // GameScreen told us exactly: no need to read progress.
+      _isReplay = knownReplay;
+      _isLoading = false;
+    } else if (_isValidLevel) {
       unawaited(_loadReplayState());
     } else {
       _isLoading = false;
@@ -202,23 +218,18 @@ class _WinScreenState extends State<WinScreen>
   // SETUP
   // ==========================================================================
 
-  /// Derives world / local level once instead of calling the service on
-  /// every build. Everything here is synchronous, so the layout (title,
-  /// buttons) is correct from the very first frame.
+  /// Derives the world once instead of calling the service on every build.
+  /// Everything here is synchronous, so the layout (title, buttons) is
+  /// correct from the very first frame.
   ///
   /// Uses GameConfig directly: worlds can have different numbers of levels,
   /// and GameConfig is the single place that knows the layout.
   void _setUpLevelData() {
     if (_isValidLevel) {
-      final ({int world, int level}) position =
-          GameConfig.splitGlobalLevel(widget.levelNumber);
-
-      _world = position.world;
-      _levelInWorld = position.level;
+      _world = GameConfig.getWorldFromGlobalLevel(widget.levelNumber);
       _isLastLevel = GameConfig.completesWorld(widget.levelNumber);
     } else {
       _world = 0;
-      _levelInWorld = 0;
       _isLastLevel = false;
     }
   }
@@ -259,13 +270,18 @@ class _WinScreenState extends State<WinScreen>
   // PROGRESS
   // ==========================================================================
 
-  /// Determines whether this completion is a replay.
+  /// Fallback replay detection, used only when [WinScreen.isReplay] is not
+  /// supplied.
   ///
   /// A completed level is a replay when a later level was already unlocked
   /// before this completion.
   ///
   /// Example: current level = 3, next unlocked level = 6
   /// 3 + 1 < 6 => replay.
+  ///
+  /// Limitation: once the whole game is complete the "next level" stays on the
+  /// final level, so a replay of the final level cannot be detected here.
+  /// GameScreen supplies [WinScreen.isReplay] to avoid this.
   Future<void> _loadReplayState() async {
     try {
       final int nextUnlockedLevel =
